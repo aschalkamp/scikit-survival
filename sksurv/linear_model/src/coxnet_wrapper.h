@@ -15,9 +15,6 @@
 #ifndef GLMNET_EIGEN_WRAPPER_H
 #define GLMNET_EIGEN_WRAPPER_H
 
-#include <Python.h>
-#include "numpy/arrayobject.h"
-
 #include "coxnet/coxnet.h"
 
 

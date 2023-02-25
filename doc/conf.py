@@ -12,18 +12,14 @@
 # All configuration values have a default; values that are commented out
 # serve to show the default.
 
-from datetime import datetime
-from importlib.metadata import version as get_version
 import inspect
+import re
 import os
 from pathlib import Path
-import re
 import sys
-
 from nbconvert.preprocessors import Preprocessor
 import nbsphinx
-
-import sksurv
+from setuptools_scm import get_version
 
 # on_rtd is whether we are on readthedocs.org, this line of code grabbed from docs.readthedocs.org
 # https://docs.readthedocs.io/en/latest/faq.html?highlight=environ#how-do-i-change-behavior-for-read-the-docs
@@ -46,12 +42,11 @@ needs_sphinx = '1.8'
 # ones.
 extensions = [
     'sphinx.ext.autodoc',
+    'sphinx.ext.napoleon',
     'sphinx.ext.autosummary',
     'sphinx.ext.coverage',
-    'sphinx.ext.extlinks',
     'sphinx.ext.linkcode',
     'sphinx.ext.mathjax',
-    'sphinx.ext.napoleon',
     'nbsphinx',
 ]
 
@@ -79,8 +74,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = 'scikit-survival'
-current_year = datetime.utcnow().year
-copyright = f'2015-{current_year}, Sebastian Pölsterl and contributors'
+copyright = '2015-2020, Sebastian Pölsterl'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -88,8 +82,9 @@ copyright = f'2015-{current_year}, Sebastian Pölsterl and contributors'
 #
 # The full version, including alpha/beta/rc tags.
 if on_rtd:
-    release = get_version(project)
+    release = get_version(root='..', relative_to=__file__)
 else:
+    import sksurv
     release = sksurv.__version__
 
 # The short X.Y.Z version.
@@ -194,10 +189,6 @@ html_js_files = ['buttons.js']
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['_static']
-
-extlinks = {
-    'issue': ('https://github.com/sebp/scikit-survival/issues/%s', '#'),
-}
 
 
 def linkcode_resolve(domain, info):
@@ -309,15 +300,93 @@ nbsphinx_from_notebook_node = nbsphinx.Exporter.from_notebook_node
 nbsphinx.Exporter.from_notebook_node = _from_notebook_node
 
 
-def patch_sklearn():
-    from sklearn.ensemble._gb import BaseGradientBoosting
-    from sklearn.utils.metaestimators import _BaseComposition
-
-    # Remove inherited API doc to avoid sphinx's duplicate object description error
-    BaseGradientBoosting.feature_importances_.__doc__ = None
-
-    # Avoid "no attribute 'steps'" for sksurv.meta.Stacking and its subclasses
-    _BaseComposition.steps = []
+# ------------------------
+# Mock dependencies on RTD
+# ------------------------
 
 
-patch_sklearn()
+if on_rtd:
+    MOCK_MODULES = [
+        # external dependencies
+        'cvxopt',
+        'cvxpy',
+        'joblib',
+        'numexpr',
+        'numpy',
+        'osqp',
+        'pandas',
+        'pandas.api.types',
+        'scipy',
+        'scipy.integrate',
+        'scipy.io.arff',
+        'scipy.linalg',
+        'scipy.optimize',
+        'scipy.sparse',
+        'scipy.special',
+        'scipy.stats',
+        'sklearn',
+        'sklearn.base',
+        'sklearn.dummy',
+        'sklearn.ensemble',
+        'sklearn.ensemble._base',
+        'sklearn.ensemble._forest',
+        'sklearn.ensemble._gb',
+        'sklearn.ensemble._gb_losses',
+        'sklearn.ensemble._gradient_boosting',
+        'sklearn.ensemble.base',
+        'sklearn.ensemble.forest',
+        'sklearn.ensemble.gradient_boosting',
+        'sklearn.exceptions',
+        'sklearn.externals.joblib',
+        'sklearn.linear_model',
+        'sklearn.metrics',
+        'sklearn.metrics.pairwise',
+        'sklearn.model_selection',
+        'sklearn.pipeline',
+        'sklearn.preprocessing',
+        'sklearn.svm',
+        'sklearn.tree',
+        'sklearn.tree._classes',
+        'sklearn.tree._splitter',
+        'sklearn.tree._tree',
+        'sklearn.tree.tree',
+        'sklearn.utils',
+        'sklearn.utils._joblib',
+        'sklearn.utils.extmath',
+        'sklearn.utils.fixes',
+        'sklearn.utils.metaestimators',
+        'sklearn.utils.validation',
+        # our C modules
+        'sksurv.bintrees._binarytrees',
+        'sksurv.ensemble._coxph_loss',
+        'sksurv.kernels._clinical_kernel',
+        'sksurv.linear_model._coxnet',
+        'sksurv.svm._minlip',
+        'sksurv.svm._prsvm',
+        'sksurv.tree._criterion']
+
+    MOCK_VERSIONS = {
+        'pandas': '0.22.0',
+        'sklearn': '0.22.0',
+    }
+
+    from unittest.mock import Mock
+
+    class MockModule(Mock):
+        """mock imports"""
+
+        @classmethod
+        def __getattr__(cls, name):
+            if name in ('__file__', '__path__'):
+                return '/dev/null'
+            elif name[0] == name[0].upper() and name[0] != "_":
+                # Not very good, we assume Uppercase names are classes...
+                mocktype = type(name, (), {})
+                mocktype.__module__ = __name__
+                return mocktype
+            else:
+                return MockModule()
+
+    sys.modules.update((mod_name, MockModule()) for mod_name in MOCK_MODULES)
+    for mod, ver in MOCK_VERSIONS.items():
+        setattr(sys.modules[mod], '__version__', ver)

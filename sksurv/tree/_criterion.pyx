@@ -2,18 +2,19 @@
 # cython: boundscheck=False
 # cython: wraparound=False
 
-from libc.math cimport INFINITY, fabs, sqrt
-from libc.stdlib cimport calloc, free, malloc, qsort, realloc
+from libc.stdlib cimport calloc, free, malloc, realloc
+from libc.stdlib cimport qsort
 from libc.string cimport memset
+from libc.math cimport fabs, sqrt, INFINITY
 
 import numpy as np
-
 cimport numpy as cnp
-
 cnp.import_array()
 
 from sklearn.tree._criterion cimport Criterion
-from sklearn.tree._tree cimport DOUBLE_t, SIZE_t
+from sklearn.tree._tree cimport SIZE_t
+from sklearn.tree._tree cimport DOUBLE_t
+
 
 ctypedef struct Timepoint:
 
@@ -114,6 +115,12 @@ cdef class LogrankCriterion(Criterion):
         self.weighted_n_node_samples = 0.0
         self.weighted_n_left = 0.0
         self.weighted_n_right = 0.0
+
+        # Allocate accumulators. Make sure they are NULL, not uninitialized,
+        # before an exception can be raised (which triggers __dealloc__).
+        self.sum_total = NULL  # not used
+        self.sum_left = NULL  # not used
+        self.sum_right = NULL  # not used
 
         self.riskset_total = NULL
         self.riskset_left = NULL
@@ -247,9 +254,7 @@ cdef class LogrankCriterion(Criterion):
         self.pos = new_pos
         return 0
 
-    cdef double impurity_improvement(self, double impurity_parent,
-                                     double impurity_left,
-                                     double impurity_right) nogil:
+    cdef double impurity_improvement(self, double impurity) nogil:
         """Compute the improvement in impurity"""
         return self.proxy_impurity_improvement()
 

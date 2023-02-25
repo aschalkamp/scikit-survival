@@ -10,16 +10,16 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+from distutils.version import LooseVersion
 import os
 from pathlib import Path
+from pkg_resources import parse_requirements as _parse_requirements
 import shutil
 import sys
 
-from packaging.version import Version
-from pkg_resources import parse_requirements as _parse_requirements
 from setuptools import Command, Extension, find_packages, setup
 
-CYTHON_MIN_VERSION = Version('0.29')
+CYTHON_MIN_VERSION = '0.29'
 
 
 # adapted from bottleneck's setup.py
@@ -40,7 +40,7 @@ class clean(Command):
             if "__pycache__" in root.name:
                 continue
 
-            for f in (root / x for x in files):
+            for f in map(lambda x: root / x, files):
                 ext = f.suffix
                 if ext == ".pyc" or ext == ".so":
                     self.delete_files.append(f)
@@ -91,7 +91,7 @@ EXTENSIONS = {
                 "language": "c++",
                 "include_dirs": ["sksurv/linear_model/src",
                                  "sksurv/linear_model/src/eigen"],
-                "extra_compile_args": ["-std=c++14"]},
+                "extra_compile_args": ["-std=c++11"]},
 }
 
 
@@ -112,7 +112,7 @@ def _check_cython_version():
         # Re-raise with more informative error message instead:
         raise ModuleNotFoundError(message)
 
-    if Version(Cython.__version__) < CYTHON_MIN_VERSION:
+    if LooseVersion(Cython.__version__) < CYTHON_MIN_VERSION:
         message += (" The current version of Cython is {} installed in {}."
                     .format(Cython.__version__, Cython.__path__))
         raise ValueError(message)
@@ -140,18 +140,10 @@ def cythonize_extensions(extensions):
                      compiler_directives=directives)
 
 
-def _check_eigen_source():
-    eigen_src = Path("sksurv/linear_model/src/eigen/Eigen")
-    if not eigen_src.is_dir():
-        raise RuntimeError("{} directory not found. You might have to run "
-                           "'git submodule update --init'.".format(eigen_src.resolve()))
-
-
 def get_extensions():
     import numpy
 
     numpy_includes = [numpy.get_include()]
-    _check_eigen_source()
 
     extensions = []
     for config in EXTENSIONS.values():
@@ -183,7 +175,7 @@ def setup_package():
         url='https://github.com/sebp/scikit-survival',
         project_urls={
             "Bug Tracker": "https://github.com/sebp/scikit-survival/issues",
-            "Documentation": "https://scikit-survival.readthedocs.io",
+            "Documentation": "https://scikit-survival.readthedocs.io/en/latest/",
             "Source Code": "https://github.com/sebp/scikit-survival",
         },
         author='Sebastian Pölsterl',
@@ -204,15 +196,16 @@ def setup_package():
                      'Programming Language :: Cython',
                      'Programming Language :: Python',
                      'Programming Language :: Python :: 3',
+                     'Programming Language :: Python :: 3.6',
+                     'Programming Language :: Python :: 3.7',
                      'Programming Language :: Python :: 3.8',
-                     'Programming Language :: Python :: 3.9',
-                     'Programming Language :: Python :: 3.10',
                      'Topic :: Software Development',
                      'Topic :: Scientific/Engineering',
                      ],
         zip_safe=False,
-        package_data={"sksurv.datasets": ["data/*.arff"]},
-        python_requires='>=3.8',
+        include_package_data=True,
+        use_scm_version=True,
+        python_requires='>=3.5',
         install_requires=parse_requirements('requirements/prod.txt'),
         cmdclass={"clean": clean},
     )

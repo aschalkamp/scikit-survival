@@ -15,7 +15,7 @@
 #ifndef GLMNET_PARAMETERS_H
 #define GLMNET_PARAMETERS_H
 
-#include <cstddef>
+#include <cstdint>
 
 
 namespace coxnet {

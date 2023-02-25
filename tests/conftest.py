@@ -1,9 +1,10 @@
 from collections import namedtuple
 from pathlib import Path
+from pkg_resources import parse_version
 import tempfile
 
-import numpy as np
-import pandas as pd
+import numpy
+import pandas
 import pytest
 from scipy.sparse import coo_matrix
 
@@ -22,21 +23,26 @@ def pytest_configure(config):
     )
 
 
-@pytest.fixture()
+@pytest.fixture
+def pandas_version_under_0p24():
+    return parse_version(pandas.__version__) < parse_version('0.24.0')
+
+
+@pytest.fixture
 def fake_data():
-    x = np.random.randn(100, 11)
-    y = Surv.from_arrays(np.ones(100, dtype=bool), np.arange(1, 101, dtype=float))
+    x = numpy.random.randn(100, 11)
+    y = Surv.from_arrays(numpy.ones(100, dtype=bool), numpy.arange(1, 101, dtype=float))
     return x, y
 
 
-@pytest.fixture()
+@pytest.fixture
 def breast_cancer():
     X_str, y = load_breast_cancer()
     X_num = encode_categorical(X_str)
     return X_num, y
 
 
-@pytest.fixture()
+@pytest.fixture
 def make_whas500():
     """Load and standardize WHAS500 data."""
     def _make_whas500(with_mean=True, with_std=True, to_numeric=False):
@@ -50,16 +56,16 @@ def make_whas500():
     return _make_whas500
 
 
-@pytest.fixture()
+@pytest.fixture
 def whas500_sparse_data():
     x, y = load_whas500()
-    x_dense = categorical_to_numeric(x.select_dtypes(exclude=[float]))
+    x_dense = categorical_to_numeric(x.select_dtypes(exclude=[numpy.float_]))
 
     data = []
     index_i = []
     index_j = []
     for j, (_, col) in enumerate(x_dense.iteritems()):
-        idx = np.flatnonzero(col.values)
+        idx = numpy.flatnonzero(col.values)
         data.extend([1] * len(idx))
         index_i.extend(idx)
         index_j.extend([j] * len(idx))
@@ -68,33 +74,33 @@ def whas500_sparse_data():
     return SparseDataSet(x_dense=x_dense, x_sparse=x_sparse, y=y)
 
 
-@pytest.fixture()
+@pytest.fixture
 def whas500_uncomparable(make_whas500):
     whas500 = make_whas500(to_numeric=True)
-    i = np.argmax(whas500.y["lenfol"])
+    i = numpy.argmax(whas500.y["lenfol"])
     whas500.y["fstat"][:] = False
     whas500.y["fstat"][i] = True
     return whas500
 
 
-@pytest.fixture()
+@pytest.fixture
 def rossi():
     """Load rossi.csv"""
     p = Path(__file__)
     f = p.parent / 'data' / 'rossi.csv'
-    data = pd.read_csv(f)
+    data = pandas.read_csv(f)
     y = Surv.from_dataframe("arrest", "week", data)
     x = data.drop(["arrest", "week"], axis=1)
     return DataSet(x=x, y=y)
 
 
-@pytest.fixture(params=[np.infty, -np.infty, np.nan])
+@pytest.fixture(params=[numpy.infty, -numpy.infty, numpy.nan])
 def non_finite_value(request):
     """Inf/-Inf/NaN value."""
     return request.param
 
 
-@pytest.fixture()
+@pytest.fixture
 def temp_file():
     f = tempfile.NamedTemporaryFile(mode="w", delete=False)
     fp = Path(f.name)

@@ -10,9 +10,9 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-import numpy as np
-import pandas as pd
+import numpy
 from scipy.io.arff import loadarff as scipy_loadarff
+import pandas
 
 __all__ = ["loadarff"]
 
@@ -27,18 +27,18 @@ def _to_pandas(data, meta):
             for b in data[name]:
                 # replace missing values with NaN
                 if b == b'?':
-                    raw.append(np.nan)
+                    raw.append(numpy.nan)
                 else:
                     raw.append(b.decode())
 
-            data_dict[name] = pd.Categorical(raw, categories=attr_format, ordered=False)
+            data_dict[name] = pandas.Categorical(raw, categories=attr_format, ordered=False)
         else:
             arr = data[name]
-            p = pd.Series(arr, dtype=arr.dtype)
+            p = pandas.Series(arr, dtype=arr.dtype)
             data_dict[name] = p
 
     # currently, this step converts all pandas.Categorial columns back to pandas.Series
-    return pd.DataFrame.from_dict(data_dict)
+    return pandas.DataFrame.from_dict(data_dict)
 
 
 def loadarff(filename):

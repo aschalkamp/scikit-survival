@@ -13,7 +13,7 @@
 import numbers
 import warnings
 
-import numpy as np
+import numpy
 from scipy.linalg import solve
 from sklearn.base import BaseEstimator
 from sklearn.exceptions import ConvergenceWarning
@@ -22,7 +22,7 @@ from sklearn.utils.validation import check_array, check_is_fitted
 from ..base import SurvivalAnalysisMixin
 from ..functions import StepFunction
 from ..nonparametric import _compute_counts
-from ..util import check_array_survival
+from ..util import check_arrays_survival
 
 __all__ = ['CoxPHSurvivalAnalysis']
 
@@ -37,9 +37,6 @@ class BreslowEstimator:
 
     baseline_survival_ : :class:`sksurv.functions.StepFunction`
         Baseline survival function.
-
-    unique_times_ : ndarray
-        Unique event times.
     """
 
     def fit(self, linear_predictor, event, time):
@@ -60,13 +57,13 @@ class BreslowEstimator:
         -------
         self
         """
-        risk_score = np.exp(linear_predictor)
-        order = np.argsort(time, kind="mergesort")
+        risk_score = numpy.exp(linear_predictor)
+        order = numpy.argsort(time, kind="mergesort")
         risk_score = risk_score[order]
         uniq_times, n_events, n_at_risk, _ = _compute_counts(event, time, order)
 
-        divisor = np.empty(n_at_risk.shape, dtype=float)
-        value = np.sum(risk_score)
+        divisor = numpy.empty(n_at_risk.shape, dtype=numpy.float_)
+        value = numpy.sum(risk_score)
         divisor[0] = value
         k = 0
         for i in range(1, len(n_at_risk)):
@@ -77,10 +74,10 @@ class BreslowEstimator:
 
         assert k == n_at_risk[0] - n_at_risk[-1]
 
-        y = np.cumsum(n_events / divisor)
+        y = numpy.cumsum(n_events / divisor)
         self.cum_baseline_hazard_ = StepFunction(uniq_times, y)
-        self.baseline_survival_ = StepFunction(uniq_times, np.exp(-y))
-        self.unique_times_ = uniq_times
+        self.baseline_survival_ = StepFunction(self.cum_baseline_hazard_.x,
+                                               numpy.exp(- self.cum_baseline_hazard_.y))
         return self
 
     def get_cumulative_hazard_function(self, linear_predictor):
@@ -96,9 +93,9 @@ class BreslowEstimator:
         cum_hazard : ndarray, shape = (n_samples,)
             Predicted cumulative hazard functions.
         """
-        risk_score = np.exp(linear_predictor)
+        risk_score = numpy.exp(linear_predictor)
         n_samples = risk_score.shape[0]
-        funcs = np.empty(n_samples, dtype=object)
+        funcs = numpy.empty(n_samples, dtype=numpy.object_)
         for i in range(n_samples):
             funcs[i] = StepFunction(x=self.cum_baseline_hazard_.x,
                                     y=self.cum_baseline_hazard_.y,
@@ -118,12 +115,12 @@ class BreslowEstimator:
         survival : ndarray, shape = (n_samples,)
             Predicted survival functions.
         """
-        risk_score = np.exp(linear_predictor)
+        risk_score = numpy.exp(linear_predictor)
         n_samples = risk_score.shape[0]
-        funcs = np.empty(n_samples, dtype=object)
+        funcs = numpy.empty(n_samples, dtype=numpy.object_)
         for i in range(n_samples):
             funcs[i] = StepFunction(x=self.baseline_survival_.x,
-                                    y=np.power(self.baseline_survival_.y, risk_score[i]))
+                                    y=numpy.power(self.baseline_survival_.y, risk_score[i]))
         return funcs
 
 
@@ -132,12 +129,12 @@ class CoxPHOptimizer:
 
     def __init__(self, X, event, time, alpha, ties):
         # sort descending
-        o = np.argsort(-time, kind="mergesort")
+        o = numpy.argsort(-time, kind="mergesort")
         self.x = X[o, :]
         self.event = event[o]
         self.time = time[o]
         self.alpha = alpha
-        self.no_alpha = np.all(self.alpha < np.finfo(self.alpha.dtype).eps)
+        self.no_alpha = numpy.all(self.alpha < numpy.finfo(self.alpha.dtype).eps)
         if ties not in ("breslow", "efron"):
             raise ValueError("ties must be one of 'breslow', 'efron'")
         self._is_breslow = ties == "breslow"
@@ -158,7 +155,7 @@ class CoxPHOptimizer:
         time = self.time
         n_samples = self.x.shape[0]
         breslow = self._is_breslow
-        xw = np.dot(self.x, w)
+        xw = numpy.dot(self.x, w)
 
         loss = 0
         risk_set = 0
@@ -171,40 +168,40 @@ class CoxPHOptimizer:
             while k < n_samples and ti == time[k]:
                 if self.event[k]:
                     numerator += xw[k]
-                    risk_set2 += np.exp(xw[k])
+                    risk_set2 += numpy.exp(xw[k])
                     n_events += 1
                 else:
-                    risk_set += np.exp(xw[k])
+                    risk_set += numpy.exp(xw[k])
                 k += 1
 
             if n_events > 0:
                 if breslow:
                     risk_set += risk_set2
-                    loss -= (numerator - n_events * np.log(risk_set)) / n_samples
+                    loss -= (numerator - n_events * numpy.log(risk_set)) / n_samples
                 else:
                     numerator /= n_events
                     for _ in range(n_events):
                         risk_set += risk_set2 / n_events
-                        loss -= (numerator - np.log(risk_set)) / n_samples
+                        loss -= (numerator - numpy.log(risk_set)) / n_samples
 
         # add regularization term to log-likelihood
-        return loss + np.sum(self.alpha * np.square(w)) / (2. * n_samples)
+        return loss + numpy.sum(self.alpha * numpy.square(w)) / (2. * n_samples)
 
     def update(self, w, offset=0):
         """Compute gradient and Hessian matrix with respect to `w`."""
         time = self.time
         x = self.x
         breslow = self._is_breslow
-        exp_xw = np.exp(offset + np.dot(x, w))
+        exp_xw = numpy.exp(offset + numpy.dot(x, w))
         n_samples, n_features = x.shape
 
-        gradient = np.zeros((1, n_features), dtype=w.dtype)
-        hessian = np.zeros((n_features, n_features), dtype=w.dtype)
+        gradient = numpy.zeros((1, n_features), dtype=w.dtype)
+        hessian = numpy.zeros((n_features, n_features), dtype=w.dtype)
 
         inv_n_samples = 1. / n_samples
         risk_set = 0
-        risk_set_x = np.zeros((1, n_features), dtype=w.dtype)
-        risk_set_xx = np.zeros((n_features, n_features), dtype=w.dtype)
+        risk_set_x = numpy.zeros((1, n_features), dtype=w.dtype)
+        risk_set_xx = numpy.zeros((n_features, n_features), dtype=w.dtype)
         k = 0
         # iterate time in descending order
         while k < n_samples:
@@ -212,14 +209,14 @@ class CoxPHOptimizer:
             n_events = 0
             numerator = 0
             risk_set2 = 0
-            risk_set_x2 = np.zeros_like(risk_set_x)
-            risk_set_xx2 = np.zeros_like(risk_set_xx)
+            risk_set_x2 = numpy.zeros_like(risk_set_x)
+            risk_set_xx2 = numpy.zeros_like(risk_set_xx)
             while k < n_samples and ti == time[k]:
                 # preserve 2D shape of row vector
                 xk = x[k:k + 1]
 
                 # outer product
-                xx = np.dot(xk.T, xk)
+                xx = numpy.dot(xk.T, xk)
 
                 if self.event[k]:
                     numerator += xk
@@ -244,7 +241,7 @@ class CoxPHOptimizer:
 
                     a = risk_set_xx / risk_set
                     # outer product
-                    b = np.dot(z.T, z)
+                    b = numpy.dot(z.T, z)
 
                     hessian += n_events * (a - b) * inv_n_samples
                 else:
@@ -259,14 +256,14 @@ class CoxPHOptimizer:
 
                         a = risk_set_xx / risk_set
                         # outer product
-                        b = np.dot(z.T, z)
+                        b = numpy.dot(z.T, z)
 
                         hessian += (a - b) * inv_n_samples
 
         if not self.no_alpha:
             gradient += self.alpha * inv_n_samples * w
 
-            diag_idx = np.diag_indices(n_features)
+            diag_idx = numpy.diag_indices(n_features)
             hessian[diag_idx] += self.alpha * inv_n_samples
 
         self.gradient = gradient.ravel()
@@ -345,16 +342,6 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
     baseline_survival_ : :class:`sksurv.functions.StepFunction`
         Estimated baseline survival function.
 
-    n_features_in_ : int
-        Number of features seen during ``fit``.
-
-    feature_names_in_ : ndarray of shape (`n_features_in_`,)
-        Names of features seen during ``fit``. Defined only when `X`
-        has feature names that are all strings.
-
-    event_times_ : array of shape = (n_event_times,)
-        Unique time points where events occurred.
-
     See also
     --------
     sksurv.linear_model.CoxnetSurvivalAnalysis
@@ -387,10 +374,6 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
     def baseline_survival_(self):
         return self._baseline_model.baseline_survival_
 
-    @property
-    def event_times_(self):
-        return self._baseline_model.unique_times_
-
     def fit(self, X, y):
         """Minimize negative partial log-likelihood for provided data.
 
@@ -408,19 +391,16 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
         -------
         self
         """
-        X = self._validate_data(X, ensure_min_samples=2, dtype=np.float64)
-        event, time = check_array_survival(X, y)
+        X, event, time = check_arrays_survival(X, y)
 
         if isinstance(self.alpha, (numbers.Real, numbers.Integral)):
-            alphas = np.empty(X.shape[1], dtype=float)
+            alphas = numpy.empty(X.shape[1], dtype=numpy.float_)
             alphas[:] = self.alpha
         else:
             alphas = self.alpha
 
-        alphas = check_array(
-            alphas, ensure_2d=False, ensure_min_samples=0, estimator=self, input_name="alpha"
-        )
-        if np.any(alphas < 0):
+        alphas = check_array(alphas, ensure_2d=False, ensure_min_samples=0)
+        if numpy.any(alphas < 0):
             raise ValueError("alpha must be positive, but was %r" % self.alpha)
         if alphas.shape[0] != X.shape[1]:
             raise ValueError(
@@ -430,7 +410,7 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
         optimizer = CoxPHOptimizer(X, event, time, alphas, self.ties)
 
         verbose_reporter = VerboseReporter(self.verbose)
-        w = np.zeros(X.shape[1])
+        w = numpy.zeros(X.shape[1])
         w_prev = w
         i = 0
         loss = float('inf')
@@ -445,7 +425,7 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
             delta = solve(optimizer.hessian, optimizer.gradient,
                           overwrite_a=False, overwrite_b=False, check_finite=False)
 
-            if not np.all(np.isfinite(delta)):
+            if not numpy.all(numpy.isfinite(delta)):
                 raise ValueError("search direction contains NaN or infinite values")
 
             w_new = w - delta
@@ -462,7 +442,7 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
             w_prev = w
             w = w_new
 
-            res = np.abs(1 - (loss_new / loss))
+            res = numpy.abs(1 - (loss_new / loss))
             if res < self.tol:
                 verbose_reporter.end_converged(i)
                 break
@@ -471,7 +451,7 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
             i += 1
 
         self.coef_ = w
-        self._baseline_model.fit(np.dot(X, self.coef_), event, time)
+        self._baseline_model.fit(numpy.dot(X, self.coef_), event, time)
         return self
 
     def predict(self, X):
@@ -489,11 +469,11 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
         """
         check_is_fitted(self, "coef_")
 
-        X = self._validate_data(X, reset=False)
+        X = numpy.atleast_2d(X)
 
-        return np.dot(X, self.coef_)
+        return numpy.dot(X, self.coef_)
 
-    def predict_cumulative_hazard_function(self, X, return_array=False):
+    def predict_cumulative_hazard_function(self, X):
         """Predict cumulative hazard function.
 
         The cumulative hazard function for an individual
@@ -511,17 +491,10 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
         X : array-like, shape = (n_samples, n_features)
             Data matrix.
 
-        return_array : boolean
-            If set, return an array with the cumulative hazard rate
-            for each `self.event_times_`, otherwise an array of
-            :class:`sksurv.functions.StepFunction`.
-
         Returns
         -------
-        cum_hazard : ndarray
-            If `return_array` is set, an array with the cumulative hazard rate
-            for each `self.event_times_`, otherwise an array of length `n_samples`
-            of :class:`sksurv.functions.StepFunction` instances will be returned.
+        cum_hazard : ndarray of :class:`sksurv.functions.StepFunction`, shape = (n_samples,)
+            Predicted cumulative hazard functions.
 
         Examples
         --------
@@ -550,11 +523,9 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
         >>> plt.ylim(0, 1)
         >>> plt.show()
         """
-        return self._predict_cumulative_hazard_function(
-            self._baseline_model, self.predict(X), return_array
-        )
+        return self._baseline_model.get_cumulative_hazard_function(self.predict(X))
 
-    def predict_survival_function(self, X, return_array=False):
+    def predict_survival_function(self, X):
         """Predict survival function.
 
         The survival function for an individual
@@ -572,18 +543,10 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
         X : array-like, shape = (n_samples, n_features)
             Data matrix.
 
-        return_array : boolean, default: False
-            If set, return an array with the probability
-            of survival for each `self.event_times_`,
-            otherwise an array of :class:`sksurv.functions.StepFunction`.
-
         Returns
         -------
-        survival : ndarray
-            If `return_array` is set, an array with the probability of
-            survival for each `self.event_times_`, otherwise an array of
-            length `n_samples` of :class:`sksurv.functions.StepFunction`
-            instances will be returned.
+        survival : ndarray of :class:`sksurv.functions.StepFunction`, shape = (n_samples,)
+            Predicted survival functions.
 
         Examples
         --------
@@ -612,6 +575,4 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
         >>> plt.ylim(0, 1)
         >>> plt.show()
         """
-        return self._predict_survival_function(
-            self._baseline_model, self.predict(X), return_array
-        )
+        return self._baseline_model.get_survival_function(self.predict(X))

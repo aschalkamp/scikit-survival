@@ -10,25 +10,31 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+from distutils.version import LooseVersion
 import logging
 
-import numpy as np
-import pandas as pd
+import numpy
+import pandas
+
 from pandas.api.types import is_categorical_dtype
+
+_pandas_version_under0p23 = LooseVersion(pandas.__version__) < LooseVersion('0.23')
+
 
 __all__ = ['categorical_to_numeric', 'encode_categorical', 'standardize']
 
 
 def _apply_along_column(array, func1d, **kwargs):
-    if isinstance(array, pd.DataFrame):
+    if isinstance(array, pandas.DataFrame):
         return array.apply(func1d, **kwargs)
-    return np.apply_along_axis(func1d, 0, array, **kwargs)
+    else:
+        return numpy.apply_along_axis(func1d, 0, array, **kwargs)
 
 
 def standardize_column(series_or_array, with_std=True):
     d = series_or_array.dtype
-    if issubclass(d.type, np.number):
-        output = series_or_array.astype(float)
+    if issubclass(d.type, numpy.number):
+        output = series_or_array.astype(numpy.float_)
         m = series_or_array.mean()
         output -= m
 
@@ -64,7 +70,7 @@ def standardize(table, with_std=True):
         Table with numeric columns normalized.
         Categorical columns in the input table remain unchanged.
     """
-    if isinstance(table, pd.DataFrame):
+    if isinstance(table, pandas.DataFrame):
         cat_columns = table.select_dtypes(include=['category']).columns
     else:
         cat_columns = []
@@ -86,15 +92,12 @@ def _encode_categorical_series(series, allow_drop=True):
 
     enc, levels = values
     if enc is None:
-        return pd.Series(index=series.index, name=series.name, dtype=series.dtype)
-
-    if not allow_drop and enc.shape[1] == 1:
-        return series
+        return pandas.Series(index=series.index, name=series.name, dtype=series.dtype)
 
     names = []
     for key in range(1, enc.shape[1]):
         names.append("{}={}".format(series.name, levels[key]))
-    series = pd.DataFrame(enc[:, 1:], columns=names, index=series.index)
+    series = pandas.DataFrame(enc[:, 1:], columns=names, index=series.index)
 
     return series
 
@@ -124,7 +127,7 @@ def encode_categorical(table, columns=None, **kwargs):
         Table with categorical columns encoded as numeric.
         Numeric columns in the input table remain unchanged.
     """
-    if isinstance(table, pd.Series):
+    if isinstance(table, pandas.Series):
         if not is_categorical_dtype(table.dtype) and not table.dtype.char == "O":
             raise TypeError("series must be of categorical dtype, but was {}".format(table.dtype))
         return _encode_categorical_series(table, **kwargs)
@@ -147,13 +150,13 @@ def encode_categorical(table, columns=None, **kwargs):
         items.append(series)
 
     # concat columns of tables
-    new_table = pd.concat(items, axis=1, copy=False)
+    new_table = pandas.concat(items, axis=1, copy=False)
     return new_table
 
 
 def _get_dummies_1d(data, allow_drop=True):
     # Series avoids inconsistent NaN handling
-    cat = pd.Categorical(data)
+    cat = pandas.Categorical(data)
     levels = cat.categories
     number_of_cols = len(levels)
 
@@ -162,13 +165,13 @@ def _get_dummies_1d(data, allow_drop=True):
         logging.getLogger(__package__).warning(
             "dropped categorical variable '%s', because it has only %d values", data.name, number_of_cols)
         return
-    if number_of_cols == 0:
+    elif number_of_cols == 0:
         return None, levels
 
-    dummy_mat = np.eye(number_of_cols).take(cat.codes, axis=0)
+    dummy_mat = numpy.eye(number_of_cols).take(cat.codes, axis=0)
 
     # reset NaN GH4446
-    dummy_mat[cat.codes == -1] = np.nan
+    dummy_mat[cat.codes == -1] = numpy.nan
 
     return dummy_mat, levels
 
@@ -193,17 +196,21 @@ def categorical_to_numeric(table):
             return column.cat.codes
         if column.dtype.char == "O":
             try:
-                nc = column.astype(np.int64)
+                nc = column.astype(numpy.int64)
             except ValueError:
                 classes = column.dropna().unique()
                 classes.sort(kind="mergesort")
-                nc = column.replace(classes, np.arange(classes.shape[0], dtype=np.int64))
+                nc = column.replace(classes, numpy.arange(classes.shape[0]))
             return nc
-        if column.dtype == bool:
-            return column.astype(np.int64)
+        elif column.dtype == bool:
+            return column.astype(numpy.int64)
 
         return column
 
-    if isinstance(table, pd.Series):
-        return pd.Series(transform(table), name=table.name, index=table.index)
-    return table.apply(transform, axis=0, result_type='expand')
+    if isinstance(table, pandas.Series):
+        return pandas.Series(transform(table), name=table.name, index=table.index)
+    else:
+        if _pandas_version_under0p23:
+            return table.apply(transform, axis=0, reduce=False)
+        else:
+            return table.apply(transform, axis=0, result_type='expand')

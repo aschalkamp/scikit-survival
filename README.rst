@@ -1,6 +1,6 @@
 |License| |Docs| |DOI|
 
-|build-tests| |build-windows| |Codecov| |Codacy|
+|build-linux| |build-macos| |build-windows| |Codecov| |Codacy|
 
 ***************
 scikit-survival
@@ -32,15 +32,16 @@ this unique characteristic of such a dataset into account.
 Requirements
 ============
 
-- Python 3.8 or later
-- ecos
+- Python 3.5 or later
+- cvxpy
+- cvxopt
 - joblib
 - numexpr
-- numpy 1.17.3 or later
+- numpy 1.12 or later
 - osqp
-- pandas 1.0.5 or later
-- scikit-learn 1.1
-- scipy 1.3.2 or later
+- pandas 0.21 or later
+- scikit-learn 0.22 or 0.23
+- scipy 1.0 or later
 - C/C++ compiler
 
 ============
@@ -80,7 +81,6 @@ Help and Support
 
 **Questions**
 
-- If you have a question on how to use scikit-survival, please use `GitHub Discussions <https://github.com/sebp/scikit-survival/discussions>`_.
 - For general theoretical or methodological questions on survival analysis, please use
   `Cross Validated <https://stats.stackexchange.com/questions/tagged/survival>`_.
 
@@ -96,23 +96,22 @@ on how to get started and to make sure your code complies with our guidelines.
 References
 ==========
 
-Please cite the following paper if you are using **scikit-survival**.
+Please cite the following papers if you are using **scikit-survival**.
 
-  S. Pölsterl, "scikit-survival: A Library for Time-to-Event Analysis Built on Top of scikit-learn,"
-  Journal of Machine Learning Research, vol. 21, no. 212, pp. 1–6, 2020.
+1. Pölsterl, S., Navab, N., and Katouzian, A.,
+`Fast Training of Support Vector Machines for Survival Analysis <http://link.springer.com/chapter/10.1007/978-3-319-23525-7_15>`_.
+Machine Learning and Knowledge Discovery in Databases: European Conference,
+ECML PKDD 2015, Porto, Portugal,
+Lecture Notes in Computer Science, vol. 9285, pp. 243-259 (2015)
 
-.. code::
+2. Pölsterl, S., Navab, N., and Katouzian, A.,
+`An Efficient Training Algorithm for Kernel Survival Support Vector Machines <https://arxiv.org/abs/1611.07054>`_.
+4th Workshop on Machine Learning in Life Sciences,
+23 September 2016, Riva del Garda, Italy
 
-  @article{sksurv,
-    author  = {Sebastian P{\"o}lsterl},
-    title   = {scikit-survival: A Library for Time-to-Event Analysis Built on Top of scikit-learn},
-    journal = {Journal of Machine Learning Research},
-    year    = {2020},
-    volume  = {21},
-    number  = {212},
-    pages   = {1-6},
-    url     = {http://jmlr.org/papers/v21/20-729.html}
-  }
+3. Pölsterl, S., Gupta, P., Wang, L., Conjeti, S., Katouzian, A., and Navab, N.,
+`Heterogeneous ensembles for predicting survival of metastatic, castrate-resistant prostate cancer patients <http://doi.org/10.12688/f1000research.8231.1>`_.
+F1000Research, vol. 5, no. 2676 (2016).
 
 .. |License| image:: https://img.shields.io/badge/license-GPLv3-blue.svg
   :target: COPYING
@@ -123,7 +122,7 @@ Please cite the following paper if you are using **scikit-survival**.
   :alt: codecov
 
 .. |Codacy| image:: https://api.codacy.com/project/badge/Grade/17242004cdf6422c9a1052bf1ec63104
-   :target: https://www.codacy.com/gh/sebp/scikit-survival/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=sebp/scikit-survival&amp;utm_campaign=Badge_Grade
+   :target: https://www.codacy.com/app/sebp/scikit-survival?utm_source=github.com&utm_medium=referral&utm_content=sebp/scikit-survival&utm_campaign=badger
    :alt: Codacy Badge
 
 .. |Docs| image:: https://readthedocs.org/projects/scikit-survival/badge/?version=latest
@@ -134,9 +133,13 @@ Please cite the following paper if you are using **scikit-survival**.
    :target: https://zenodo.org/badge/latestdoi/77409504
    :alt: Digital Object Identifier (DOI)
 
-.. |build-tests| image:: https://github.com/sebp/scikit-survival/actions/workflows/tests-workflow.yaml/badge.svg?branch=master
-  :target: https://github.com/sebp/scikit-survival/actions?query=workflow%3Atests+branch%3Amaster
-  :alt: GitHub Actions Tests Status
+.. |build-linux| image:: https://github.com/sebp/scikit-survival/workflows/Linux/badge.svg?branch=master
+  :target: https://github.com/sebp/scikit-survival/actions?query=workflow%3ALinux+branch%3Amaster+
+  :alt: Linux Build Status
+
+.. |build-macos| image:: https://github.com/sebp/scikit-survival/workflows/macOS/badge.svg?branch=master
+  :target: https://github.com/sebp/scikit-survival/actions?query=workflow%3AmacOS+branch%3Amaster+
+  :alt: macOS Build Status
 
 .. |build-windows| image:: https://ci.appveyor.com/api/projects/status/github/sebp/scikit-survival?branch=master&svg=true
    :target: https://ci.appveyor.com/project/sebp/scikit-survival

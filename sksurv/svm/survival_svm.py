@@ -13,29 +13,28 @@
 from abc import ABCMeta, abstractmethod
 import warnings
 
+import numpy
 import numexpr
-import numpy as np
 from scipy.optimize import minimize
 from sklearn.base import BaseEstimator
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.metrics.pairwise import pairwise_kernels
-from sklearn.utils import check_array, check_consistent_length, check_random_state, check_X_y
+from sklearn.utils import check_X_y, check_array, check_consistent_length, check_random_state
 from sklearn.utils.extmath import safe_sparse_dot, squared_norm
-from sklearn.utils.validation import check_is_fitted
 
 from ..base import SurvivalAnalysisMixin
 from ..bintrees import AVLTree, RBTree
 from ..exceptions import NoComparablePairException
-from ..util import check_array_survival
+from ..util import check_arrays_survival
 from ._prsvm import survival_constraints_simple, survival_constraints_with_support_vectors
 
 
-class Counter(metaclass=ABCMeta):
+class Counter(object, metaclass=ABCMeta):
     @abstractmethod
     def __init__(self, x, y, status, time=None):
         self.x, self.y = check_X_y(x, y)
 
-        assert np.issubdtype(y.dtype, np.integer), \
+        assert numpy.issubdtype(y.dtype, numpy.integer), \
             "y vector must have integer type, but was {0}".format(y.dtype)
         assert y.min() == 0, "minimum element of y vector must be 0"
 
@@ -47,10 +46,10 @@ class Counter(metaclass=ABCMeta):
             self.time = check_array(time, ensure_2d=False)
             check_consistent_length(self.x, self.status, self.time)
 
-        self.eps = np.finfo(self.x.dtype).eps
+        self.eps = numpy.finfo(self.x.dtype).eps
 
     def update_sort_order(self, w):
-        xw = np.dot(self.x, w)
+        xw = numpy.dot(self.x, w)
         order = xw.argsort(kind='mergesort')
         self.xw = xw[order]
         self.order = order
@@ -88,15 +87,15 @@ class OrderStatisticTreeSurvivalCounter(Counter):
     def calculate(self, v):
         # only self.xw is sorted, for everything else use self.order
         # the order of return values is with respect to original order of samples, NOT self.order
-        xv = np.dot(self.x, v)
+        xv = numpy.dot(self.x, v)
 
         od = self.order
 
         n_samples = self.x.shape[0]
-        l_plus = np.zeros(n_samples, dtype=int)
-        l_minus = np.zeros(n_samples, dtype=int)
-        xv_plus = np.zeros(n_samples, dtype=float)
-        xv_minus = np.zeros(n_samples, dtype=float)
+        l_plus = numpy.zeros(n_samples, dtype=int)
+        l_minus = numpy.zeros(n_samples, dtype=int)
+        xv_plus = numpy.zeros(n_samples, dtype=float)
+        xv_minus = numpy.zeros(n_samples, dtype=float)
 
         j = 0
         tree = self._tree_class(n_samples)
@@ -140,10 +139,10 @@ class SurvivalCounter(Counter):
 
     def calculate(self, v):
         n_samples = self.x.shape[0]
-        l_plus = np.zeros(n_samples, dtype=int)
-        l_minus = np.zeros(n_samples, dtype=int)
-        xv_plus = np.zeros(n_samples, dtype=float)
-        xv_minus = np.zeros(n_samples, dtype=float)
+        l_plus = numpy.zeros(n_samples, dtype=int)
+        l_minus = numpy.zeros(n_samples, dtype=int)
+        xv_plus = numpy.zeros(n_samples, dtype=float)
+        xv_minus = numpy.zeros(n_samples, dtype=float)
         indices = self._count_values()
 
         od = self.order
@@ -154,7 +153,7 @@ class SurvivalCounter(Counter):
             # relevance levels are unique, therefore count can only be 1 or 0
             count_minus = 1 if relevance in indices else 0
             xv_count_plus = 0
-            xv_count_minus = np.dot(self.x.take(indices.get(relevance, []), axis=0), v).sum()
+            xv_count_minus = numpy.dot(self.x.take(indices.get(relevance, []), axis=0), v).sum()
 
             for i in range(n_samples):
                 if self.y[od[i]] != relevance or not self.status[od[i]]:
@@ -163,7 +162,7 @@ class SurvivalCounter(Counter):
                 while j < n_samples and 1 - self.xw[j] + self.xw[i] > 0:
                     if self.y[od[j]] > relevance:
                         count_plus += 1
-                        xv_count_plus += np.dot(self.x[od[j], :], v)
+                        xv_count_plus += numpy.dot(self.x[od[j], :], v)
                         l_minus[od[j]] += count_minus
                         xv_minus[od[j]] += xv_count_minus
 
@@ -172,12 +171,12 @@ class SurvivalCounter(Counter):
                 l_plus[od[i]] = count_plus
                 xv_plus[od[i]] += xv_count_plus
                 count_minus -= 1
-                xv_count_minus -= np.dot(self.x.take(od[i], axis=0), v)
+                xv_count_minus -= numpy.dot(self.x.take(od[i], axis=0), v)
 
         return l_plus, xv_plus, l_minus, xv_minus
 
 
-class RankSVMOptimizer(metaclass=ABCMeta):
+class RankSVMOptimizer(object, metaclass=ABCMeta):
     """Abstract base class for all optimizers"""
     def __init__(self, alpha, rank_ratio, timeit=False):
         self.alpha = alpha
@@ -231,7 +230,7 @@ class RankSVMOptimizer(metaclass=ABCMeta):
         return self._last_gradient
 
     def _init_coefficients(self):
-        w = np.zeros(self.n_coefficients)
+        w = numpy.zeros(self.n_coefficients)
         self._update_constraints(w)
         self._last_w = w.copy()
         return w
@@ -262,12 +261,12 @@ class SimpleOptimizer(RankSVMOptimizer):
     def __init__(self, x, y, alpha, rank_ratio, timeit=False):
         super().__init__(alpha, rank_ratio, timeit)
         self.data_x = x
-        self.constraints = survival_constraints_simple(np.asarray(y, dtype=np.uint8))
+        self.constraints = survival_constraints_simple(numpy.asarray(y, dtype=numpy.uint8))
 
         if self.constraints.shape[0] == 0:
             raise NoComparablePairException("Data has no comparable pairs, cannot fit model.")
 
-        self.L = np.ones(self.constraints.shape[0])
+        self.L = numpy.ones(self.constraints.shape[0])
 
     @property
     def n_coefficients(self):
@@ -278,23 +277,23 @@ class SimpleOptimizer(RankSVMOptimizer):
         return val
 
     def _update_constraints(self, w):
-        self.xw = np.dot(self.data_x, w)
+        self.xw = numpy.dot(self.data_x, w)
         self.L = 1 - self.constraints.dot(self.xw)
-        np.maximum(0, self.L, out=self.L)
-        support_vectors = np.nonzero(self.L > 0)[0]
+        numpy.maximum(0, self.L, out=self.L)
+        support_vectors = numpy.nonzero(self.L > 0)[0]
         self.Asv = self.constraints[support_vectors, :]
 
     def _gradient_func(self, w):
         # sum over columns without running into overflow problems
-        col_sum = self.Asv.sum(axis=0, dtype=int)
+        col_sum = self.Asv.sum(axis=0, dtype=numpy.int_)
         v = col_sum.A.squeeze()
 
-        z = np.dot(self.data_x.T, (self.Asv.T.dot(self.Asv.dot(self.xw)) - v))
+        z = numpy.dot(self.data_x.T, (self.Asv.T.dot(self.Asv.dot(self.xw)) - v))
         return w + self.alpha * z
 
     def _hessian_func(self, w, s):
-        z = self.alpha * self.Asv.dot(np.dot(self.data_x, s))
-        return s + np.dot(safe_sparse_dot(z.T, self.Asv), self.data_x).T
+        z = self.alpha * self.Asv.dot(numpy.dot(self.data_x, s))
+        return s + numpy.dot(safe_sparse_dot(z.T, self.Asv), self.data_x).T
 
 
 class PRSVMOptimizer(RankSVMOptimizer):
@@ -303,10 +302,10 @@ class PRSVMOptimizer(RankSVMOptimizer):
     def __init__(self, x, y, alpha, rank_ratio, timeit=False):
         super().__init__(alpha, rank_ratio, timeit)
         self.data_x = x
-        self.data_y = np.asarray(y, dtype=np.uint8)
+        self.data_y = numpy.asarray(y, dtype=numpy.uint8)
         self._constraints = lambda w: survival_constraints_with_support_vectors(self.data_y, w)
 
-        Aw = self._constraints(np.zeros(x.shape[1]))
+        Aw = self._constraints(numpy.zeros(x.shape[1]))
         if Aw.shape[0] == 0:
             raise NoComparablePairException("Data has no comparable pairs, cannot fit model.")
 
@@ -320,20 +319,20 @@ class PRSVMOptimizer(RankSVMOptimizer):
         return val
 
     def _update_constraints(self, w):
-        xw = np.dot(self.data_x, w)
+        xw = numpy.dot(self.data_x, w)
         self.Aw = self._constraints(xw)
         self.AXw = self.Aw.dot(xw)
 
     def _gradient_func(self, w):
         # sum over columns without running into overflow problems
-        col_sum = self.Aw.sum(axis=0, dtype=int)
+        col_sum = self.Aw.sum(axis=0, dtype=numpy.int_)
         v = col_sum.A.squeeze()
-        z = np.dot(self.data_x.T, self.Aw.T.dot(self.AXw) - v)
+        z = numpy.dot(self.data_x.T, self.Aw.T.dot(self.AXw) - v)
         return w + self.alpha * z
 
     def _hessian_func(self, w, s):
-        v = self.Aw.dot(np.dot(self.data_x, s))
-        z = self.alpha * np.dot(self.data_x.T, self.Aw.T.dot(v))
+        v = self.Aw.dot(numpy.dot(self.data_x, s))
+        z = self.alpha * numpy.dot(self.data_x.T, self.Aw.T.dot(v))
         return s + z
 
 
@@ -383,8 +382,8 @@ class LargeScaleOptimizer(RankSVMOptimizer):
             w[0] = self._counter.time.mean()
             n -= 1
 
-        l_plus, _, l_minus, _ = self._counter.calculate(np.zeros(n))
-        if np.all(l_plus == 0) and np.all(l_minus == 0):
+        l_plus, _, l_minus, _ = self._counter.calculate(numpy.zeros(n))
+        if numpy.all(l_plus == 0) and numpy.all(l_minus == 0):
             raise NoComparablePairException("Data has no comparable pairs, cannot fit model.")
 
         return w
@@ -431,20 +430,20 @@ class LargeScaleOptimizer(RankSVMOptimizer):
         l_plus, xv_plus, l_minus, xv_minus = self._counter.calculate(wf)  # pylint: disable=unused-variable
         x = self._counter.x
 
-        xw = self._xw  # noqa: F841; # pylint: disable=unused-variable
+        xw = self._xw  # noqa: F841
         z = numexpr.evaluate('(l_plus + l_minus) * xw - xv_plus - xv_minus - l_minus + l_plus')
 
-        grad = wf + self._rank_penalty * np.dot(x.T, z)
+        grad = wf + self._rank_penalty * numpy.dot(x.T, z)
         if self._has_time:
             xc = x.compress(self.regr_mask, axis=0)
-            xcs = np.dot(xc, wf)
-            grad += self._regr_penalty * (np.dot(xc.T, xcs) + xc.sum(axis=0) * bias
-                                          - np.dot(xc.T, self.y_compressed))
+            xcs = numpy.dot(xc, wf)
+            grad += self._regr_penalty * (numpy.dot(xc.T, xcs) + xc.sum(axis=0) * bias
+                                          - numpy.dot(xc.T, self.y_compressed))
 
             # intercept
             if self._fit_intercept:
                 grad_intercept = self._regr_penalty * (xcs.sum() + xc.shape[0] * bias - self.y_compressed.sum())
-                grad = np.r_[grad_intercept, grad]
+                grad = numpy.concatenate(([grad_intercept], grad))
 
         return grad
 
@@ -454,21 +453,21 @@ class LargeScaleOptimizer(RankSVMOptimizer):
         l_plus, xv_plus, l_minus, xv_minus = self._counter.calculate(s_feat)  # pylint: disable=unused-variable
         x = self._counter.x
 
-        xs = np.dot(x, s_feat)  # pylint: disable=unused-variable
+        xs = numpy.dot(x, s_feat)  # pylint: disable=unused-variable
         xs = numexpr.evaluate('(l_plus + l_minus) * xs - xv_plus - xv_minus')
 
-        hessp = s_feat + self._rank_penalty * np.dot(x.T, xs)
+        hessp = s_feat + self._rank_penalty * numpy.dot(x.T, xs)
         if self._has_time:
             xc = x.compress(self.regr_mask, axis=0)
-            hessp += self._regr_penalty * np.dot(xc.T, np.dot(xc, s_feat))
+            hessp += self._regr_penalty * numpy.dot(xc.T, numpy.dot(xc, s_feat))
 
             # intercept
             if self._fit_intercept:
                 xsum = xc.sum(axis=0)
                 hessp += self._regr_penalty * xsum * s_bias
                 hessp_intercept = (self._regr_penalty * xc.shape[0] * s_bias
-                                   + self._regr_penalty * np.dot(xsum, s_feat))
-                hessp = np.r_[hessp_intercept, hessp]
+                                   + self._regr_penalty * numpy.dot(xsum, s_feat))
+                hessp = numpy.concatenate(([hessp_intercept], hessp))
 
         return hessp
 
@@ -516,8 +515,8 @@ class NonlinearLargeScaleOptimizer(RankSVMOptimizer):
             w[0] = self._counter.time.mean()
             n -= 1
 
-        l_plus, _, l_minus, _ = self._counter.calculate(np.zeros(n))
-        if np.all(l_plus == 0) and np.all(l_minus == 0):
+        l_plus, _, l_minus, _ = self._counter.calculate(numpy.zeros(n))
+        if numpy.all(l_plus == 0) and numpy.all(l_minus == 0):
             raise NoComparablePairException("Data has no comparable pairs, cannot fit model.")
 
         return w
@@ -547,7 +546,7 @@ class NonlinearLargeScaleOptimizer(RankSVMOptimizer):
 
         Kw = self._Kw
 
-        val = 0.5 * np.dot(beta, Kw)
+        val = 0.5 * numpy.dot(beta, Kw)
         if self._has_time:
             val += 0.5 * self._regr_penalty * squared_norm(self.y_compressed - bias
                                                            - Kw.compress(self.regr_mask, axis=0))
@@ -567,42 +566,42 @@ class NonlinearLargeScaleOptimizer(RankSVMOptimizer):
         l_plus, xv_plus, l_minus, xv_minus = self._counter.calculate(beta)  # pylint: disable=unused-variable
         z = numexpr.evaluate('(l_plus + l_minus) * Kw - xv_plus - xv_minus - l_minus + l_plus')
 
-        gradient = Kw + self._rank_penalty * np.dot(K, z)
+        gradient = Kw + self._rank_penalty * numpy.dot(K, z)
         if self._has_time:
             K_comp = K.compress(self.regr_mask, axis=0)
-            K_comp_beta = np.dot(K_comp, beta)
-            gradient += self._regr_penalty * (np.dot(K_comp.T, K_comp_beta)
-                                              + K_comp.sum(axis=0) * bias - np.dot(K_comp.T, self.y_compressed))
+            K_comp_beta = numpy.dot(K_comp, beta)
+            gradient += self._regr_penalty * (numpy.dot(K_comp.T, K_comp_beta)
+                                              + K_comp.sum(axis=0) * bias - numpy.dot(K_comp.T, self.y_compressed))
 
             # intercept
             if self._fit_intercept:
                 grad_intercept = self._regr_penalty * (K_comp_beta.sum()
                                                        + K_comp.shape[0] * bias - self.y_compressed.sum())
-                gradient = np.r_[grad_intercept, gradient]
+                gradient = numpy.concatenate(([grad_intercept], gradient))
 
         return gradient
 
-    def _hessian_func(self, _beta, s):
+    def _hessian_func(self, beta, s):
         s_bias, s_feat = self._split_coefficents(s)
 
         K = self._counter.x
-        Ks = np.dot(K, s_feat)
+        Ks = numpy.dot(K, s_feat)
 
         l_plus, xv_plus, l_minus, xv_minus = self._counter.calculate(s_feat)  # pylint: disable=unused-variable
         xs = numexpr.evaluate('(l_plus + l_minus) * Ks - xv_plus - xv_minus')
 
-        hessian = Ks + self._rank_penalty * np.dot(K, xs)
+        hessian = Ks + self._rank_penalty * numpy.dot(K, xs)
         if self._has_time:
             K_comp = K.compress(self.regr_mask, axis=0)
-            hessian += self._regr_penalty * np.dot(K_comp.T, np.dot(K_comp, s_feat))
+            hessian += self._regr_penalty * numpy.dot(K_comp.T, numpy.dot(K_comp, s_feat))
 
             # intercept
             if self._fit_intercept:
                 xsum = K_comp.sum(axis=0)
                 hessian += self._regr_penalty * xsum * s_bias
                 hessian_intercept = (self._regr_penalty * K_comp.shape[0] * s_bias
-                                     + self._regr_penalty * np.dot(xsum, s_feat))
-                hessian = np.r_[hessian_intercept, hessian]
+                                     + self._regr_penalty * numpy.dot(xsum, s_feat))
+                hessian = numpy.concatenate(([hessian_intercept], hessian))
 
         return hessian
 
@@ -652,10 +651,6 @@ class BaseSurvivalSVM(BaseEstimator, metaclass=ABCMeta):
 
         return optimizer
 
-    @property
-    def _predict_risk_score(self):
-        return self.rank_ratio == 1
-
     @abstractmethod
     def _fit(self, X, time, event, samples_order):
         """Create and run optimizer"""
@@ -663,9 +658,6 @@ class BaseSurvivalSVM(BaseEstimator, metaclass=ABCMeta):
     @abstractmethod
     def predict(self, X):
         """Predict risk score"""
-
-    def _validate_for_fit(self, X):
-        return self._validate_data(X, ensure_min_samples=2)
 
     def fit(self, X, y):
         """Build a survival support vector machine model from training data.
@@ -684,8 +676,7 @@ class BaseSurvivalSVM(BaseEstimator, metaclass=ABCMeta):
         -------
         self
         """
-        X = self._validate_for_fit(X)
-        event, time = check_array_survival(X, y)
+        X, event, time = check_arrays_survival(X, y)
 
         if self.alpha <= 0:
             raise ValueError("alpha must be positive")
@@ -704,8 +695,8 @@ class BaseSurvivalSVM(BaseEstimator, metaclass=ABCMeta):
                 raise ValueError("observed time contains values smaller or equal to zero")
 
             # log-transform time
-            time = np.log(time)
-            assert np.isfinite(time).all()
+            time = numpy.log(time)
+            assert numpy.isfinite(time).all()
 
         random_state = check_random_state(self.random_state)
         samples_order = BaseSurvivalSVM._argsort_and_resolve_ties(time, random_state)
@@ -726,15 +717,11 @@ class BaseSurvivalSVM(BaseEstimator, metaclass=ABCMeta):
 
         return self
 
-    @property
-    def n_iter_(self):
-        return self.optimizer_result_.nit
-
     @staticmethod
     def _argsort_and_resolve_ties(time, random_state):
-        """Like np.argsort, but resolves ties uniformly at random"""
+        """Like numpy.argsort, but resolves ties uniformly at random"""
         n_samples = len(time)
-        order = np.argsort(time, kind="mergesort")
+        order = numpy.argsort(time, kind="mergesort")
 
         i = 0
         while i < n_samples - 1:
@@ -829,16 +816,6 @@ class FastSurvivalSVM(BaseSurvivalSVM, SurvivalAnalysisMixin):
     optimizer_result_ : :class:`scipy.optimize.optimize.OptimizeResult`
         Stats returned by the optimizer. See :class:`scipy.optimize.optimize.OptimizeResult`.
 
-    n_features_in_ : int
-        Number of features seen during ``fit``.
-
-    feature_names_in_ : ndarray of shape (`n_features_in_`,)
-        Names of features seen during ``fit``. Defined only when `X`
-        has feature names that are all strings.
-
-    n_iter_ : int
-        Number of iterations run by the optimization routine to fit the model.
-
     See also
     --------
     FastKernelSurvivalSVM
@@ -861,7 +838,7 @@ class FastSurvivalSVM(BaseSurvivalSVM, SurvivalAnalysisMixin):
                          timeit=timeit)
 
     def _fit(self, X, time, event, samples_order):
-        data_y = (time[samples_order], np.arange(len(samples_order)))
+        data_y = (time[samples_order], numpy.arange(len(samples_order)))
         status = event[samples_order]
 
         optimizer = self._create_optimizer(X[samples_order], data_y, status)
@@ -883,10 +860,7 @@ class FastSurvivalSVM(BaseSurvivalSVM, SurvivalAnalysisMixin):
         y : ndarray, shape = (n_samples,)
             Predicted ranks.
         """
-        check_is_fitted(self, "coef_")
-        X = self._validate_data(X, reset=False)
-
-        val = np.dot(X, self.coef_)
+        val = numpy.dot(X, self.coef_)
         if hasattr(self, "intercept_"):
             val += self.intercept_
 
@@ -895,7 +869,7 @@ class FastSurvivalSVM(BaseSurvivalSVM, SurvivalAnalysisMixin):
             val *= -1
         else:
             # model was fitted on log(time), transform to original scale
-            val = np.exp(val)
+            val = numpy.exp(val)
 
         return val
 
@@ -962,24 +936,13 @@ class FastKernelSurvivalSVM(BaseSurvivalSVM, SurvivalAnalysisMixin):
     Attributes
     ----------
     coef_ : ndarray, shape = (n_samples,)
-        Weights assigned to the samples in training data to represent
-        the decision function in kernel space.
+        Coefficients of the features in the decision function.
 
     fit_X_ : ndarray
         Training data.
 
     optimizer_result_ : :class:`scipy.optimize.optimize.OptimizeResult`
         Stats returned by the optimizer. See :class:`scipy.optimize.optimize.OptimizeResult`.
-
-    n_features_in_ : int
-        Number of features seen during ``fit``.
-
-    feature_names_in_ : ndarray of shape (`n_features_in_`,)
-        Names of features seen during ``fit``. Defined only when `X`
-        has feature names that are all strings.
-
-    n_iter_ : int
-        Number of iterations run by the optimization routine to fit the model.
 
     See also
     --------
@@ -1006,9 +969,10 @@ class FastKernelSurvivalSVM(BaseSurvivalSVM, SurvivalAnalysisMixin):
         self.coef0 = coef0
         self.kernel_params = kernel_params
 
-    def _more_tags(self):
+    @property
+    def _pairwise(self):
         # tell sklearn.utils.metaestimators._safe_split function that we expect kernel matrix
-        return {"pairwise": self.kernel == "precomputed"}
+        return self.kernel == "precomputed"
 
     def _get_kernel(self, X, Y=None):
         if callable(self.kernel):
@@ -1041,21 +1005,16 @@ class FastKernelSurvivalSVM(BaseSurvivalSVM, SurvivalAnalysisMixin):
 
         return optimizer
 
-    def _validate_for_fit(self, X):
-        if self.kernel != "precomputed":
-            return super()._validate_for_fit(X)
-        return X
-
     def _fit(self, X, time, event, samples_order):
         # don't reorder X here, because it might be a precomputed kernel matrix
         kernel_mat = self._get_kernel(X)
-        if (np.abs(kernel_mat.T - kernel_mat) > 1e-12).any():
+        if (numpy.abs(kernel_mat.T - kernel_mat) > 1e-12).any():
             raise ValueError('kernel matrix is not symmetric')
 
-        data_y = (time[samples_order], np.arange(len(samples_order)))
+        data_y = (time[samples_order], numpy.arange(len(samples_order)))
         status = event[samples_order]
 
-        optimizer = self._create_optimizer(kernel_mat[np.ix_(samples_order, samples_order)], data_y, status)
+        optimizer = self._create_optimizer(kernel_mat[numpy.ix_(samples_order, samples_order)], data_y, status)
         opt_result = optimizer.run(tol=self.tol, options={'maxiter': self.max_iter, 'disp': self.verbose})
 
         # reorder coefficients according to order in original training data,
@@ -1083,10 +1042,9 @@ class FastKernelSurvivalSVM(BaseSurvivalSVM, SurvivalAnalysisMixin):
         y : ndarray, shape = (n_samples,)
             Predicted ranks.
         """
-        X = self._validate_data(X, reset=False)
         kernel_mat = self._get_kernel(X, self.fit_X_)
 
-        val = np.dot(kernel_mat, self.coef_)
+        val = numpy.dot(kernel_mat, self.coef_)
         if hasattr(self, "intercept_"):
             val += self.intercept_
 
@@ -1095,6 +1053,6 @@ class FastKernelSurvivalSVM(BaseSurvivalSVM, SurvivalAnalysisMixin):
             val *= -1
         else:
             # model was fitted on log(time), transform to original scale
-            val = np.exp(val)
+            val = numpy.exp(val)
 
         return val

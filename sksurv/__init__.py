@@ -1,10 +1,10 @@
 import importlib
+from pkg_resources import get_distribution, DistributionNotFound
 import platform
 import sys
 
-from pkg_resources import DistributionNotFound, get_distribution
-from sklearn.pipeline import Pipeline, _final_estimator_has
-from sklearn.utils.metaestimators import available_if
+from sklearn.pipeline import Pipeline
+from sklearn.utils.metaestimators import if_delegate_has_method
 
 
 def _get_version(name):
@@ -39,8 +39,9 @@ def show_versions():
         "numpy",
         "scipy",
         "pandas",
+        "cvxopt",
+        "cvxpy",
         "numexpr",
-        "ecos",
         "osqp",
         "joblib",
         "matplotlib",
@@ -68,7 +69,7 @@ def show_versions():
         print(fmt.format(dep, version))
 
 
-@available_if(_final_estimator_has('predict_cumulative_hazard_function'))
+@if_delegate_has_method(delegate='_final_estimator')
 def predict_cumulative_hazard_function(self, X, **kwargs):
     """Predict cumulative hazard function.
 
@@ -98,7 +99,7 @@ def predict_cumulative_hazard_function(self, X, **kwargs):
     return self.steps[-1][-1].predict_cumulative_hazard_function(Xt, **kwargs)
 
 
-@available_if(_final_estimator_has('predict_survival_function'))
+@if_delegate_has_method(delegate='_final_estimator')
 def predict_survival_function(self, X, **kwargs):
     """Predict survival function.
 

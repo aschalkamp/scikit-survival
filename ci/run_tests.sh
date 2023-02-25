@@ -4,14 +4,14 @@ export PYTHONWARNINGS="default"
 
 cd tests/
 
-coverage_opts=(--cov-config=../.coveragerc --cov=sksurv --cov-report xml --cov-report term-missing)
-pytest_opts=(--strict-markers)
+coverage_opts="--cov-config=../.coveragerc --cov=sksurv --cov-report xml --cov-report term-missing"
+pytest_opts="--strict"
 
-if [ "x${NO_SLOW:-false}" != "xtrue" ]; then
+if [[ "x$NO_SLOW" != "xtrue" ]]; then
   coverage erase
   rm -f coverage.xml
 else
-  pytest_opts+=(-m 'not slow')
+  pytest_opts="${pytest_opts} -m 'not slow'"
 fi
 
-pytest "${pytest_opts[@]}" "${coverage_opts[@]}"
+sh -c "pytest ${pytest_opts} ${coverage_opts}"

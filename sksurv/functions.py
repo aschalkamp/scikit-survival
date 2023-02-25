@@ -11,13 +11,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import numpy as np
+import numpy
 from sklearn.utils import check_consistent_length
 
 __all__ = ['StepFunction']
 
 
-class StepFunction:
+class StepFunction(object):
     """Callable step function.
 
     .. math::
@@ -59,13 +59,13 @@ class StepFunction:
         y : float|array-like, shape=(n_values,)
             Values of step function at `x`.
         """
-        x = np.atleast_1d(x)
-        if not np.isfinite(x).all():
+        x = numpy.atleast_1d(x)
+        if not numpy.isfinite(x).all():
             raise ValueError("x must be finite")
-        if np.min(x) < self.x[0] or np.max(x) > self.x[-1]:
+        if numpy.min(x) < self.x[0] or numpy.max(x) > self.x[-1]:
             raise ValueError(
                 "x must be within [%f; %f]" % (self.x[0], self.x[-1]))
-        i = np.searchsorted(self.x, x, side='left')
+        i = numpy.searchsorted(self.x, x, side='left')
         not_exact = self.x[i] != x
         i[not_exact] -= 1
         value = self.a * self.y[i] + self.b
@@ -75,13 +75,3 @@ class StepFunction:
 
     def __repr__(self):
         return "StepFunction(x=%r, y=%r, a=%r, b=%r)" % (self.x, self.y, self.a, self.b)
-
-    def __eq__(self, other):
-        if isinstance(other, type(self)):
-            return (
-                all(self.x == other.x)
-                and all(self.y == other.y)
-                and self.a == other.a
-                and self.b == other.b
-            )
-        return False

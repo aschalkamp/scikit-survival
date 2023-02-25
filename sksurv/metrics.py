@@ -10,20 +10,15 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-import numpy as np
-from sklearn.base import BaseEstimator
-from sklearn.utils import check_array, check_consistent_length
-from sklearn.utils.metaestimators import available_if
-from sklearn.utils.validation import check_is_fitted
+import numpy
+from scipy.integrate import trapz
+from sklearn.utils import check_consistent_length, check_array
 
 from .exceptions import NoComparablePairException
 from .nonparametric import CensoringDistributionEstimator, SurvivalFunctionEstimator
 from .util import check_y_survival
 
 __all__ = [
-    'as_concordance_index_ipcw_scorer',
-    'as_cumulative_dynamic_auc_scorer',
-    'as_integrated_brier_score_scorer',
     'brier_score',
     'concordance_index_censored',
     'concordance_index_ipcw',
@@ -32,8 +27,8 @@ __all__ = [
 ]
 
 
-def _check_estimate_1d(estimate, test_time):
-    estimate = check_array(estimate, ensure_2d=False, input_name="estimate")
+def _check_estimate(estimate, test_time):
+    estimate = check_array(estimate, ensure_2d=False)
     if estimate.ndim != 1:
         raise ValueError(
             'Expected 1D array, got {:d}D array instead:\narray={}.\n'.format(
@@ -44,11 +39,11 @@ def _check_estimate_1d(estimate, test_time):
 
 def _check_inputs(event_indicator, event_time, estimate):
     check_consistent_length(event_indicator, event_time, estimate)
-    event_indicator = check_array(event_indicator, ensure_2d=False, input_name="event_indicator")
-    event_time = check_array(event_time, ensure_2d=False, input_name="event_time")
-    estimate = _check_estimate_1d(estimate, event_time)
+    event_indicator = check_array(event_indicator, ensure_2d=False)
+    event_time = check_array(event_time, ensure_2d=False)
+    estimate = _check_estimate(estimate, event_time)
 
-    if not np.issubdtype(event_indicator.dtype, np.bool_):
+    if not numpy.issubdtype(event_indicator.dtype, numpy.bool_):
         raise ValueError(
             'only boolean arrays are supported as class labels for survival analysis, got {0}'.format(
                 event_indicator.dtype))
@@ -63,8 +58,8 @@ def _check_inputs(event_indicator, event_time, estimate):
 
 
 def _check_times(test_time, times):
-    times = check_array(np.atleast_1d(times), ensure_2d=False, dtype=test_time.dtype, input_name="times")
-    times = np.unique(times)
+    times = check_array(numpy.atleast_1d(times), ensure_2d=False, dtype=test_time.dtype)
+    times = numpy.unique(times)
 
     if times.max() >= test_time.max() or times.min() < test_time.min():
         raise ValueError(
@@ -72,18 +67,6 @@ def _check_times(test_time, times):
                 test_time.min(), test_time.max()))
 
     return times
-
-
-def _check_estimate_2d(estimate, test_time, time_points, estimator):
-    estimate = check_array(estimate, ensure_2d=False, allow_nd=False, input_name="estimate", estimator=estimator)
-    time_points = _check_times(test_time, time_points)
-    check_consistent_length(test_time, estimate)
-
-    if estimate.ndim == 2 and estimate.shape[1] != time_points.shape[0]:
-        raise ValueError("expected estimate with {} columns, but got {}".format(
-            time_points.shape[0], estimate.shape[1]))
-
-    return estimate, time_points
 
 
 def _get_comparable(event_indicator, event_time, order):
@@ -103,7 +86,7 @@ def _get_comparable(event_indicator, event_time, order):
         censored_at_same_time = ~event_at_same_time
         for j in range(i, end):
             if event_indicator[order[j]]:
-                mask = np.zeros(n_samples, dtype=bool)
+                mask = numpy.zeros(n_samples, dtype=bool)
                 mask[end:] = True
                 # an event is comparable to censored samples at same time point
                 mask[i:end] = censored_at_same_time
@@ -115,7 +98,7 @@ def _get_comparable(event_indicator, event_time, order):
 
 
 def _estimate_concordance_index(event_indicator, event_time, estimate, weights, tied_tol=1e-8):
-    order = np.argsort(event_time)
+    order = numpy.argsort(event_time)
 
     comparable, tied_time = _get_comparable(event_indicator, event_time, order)
 
@@ -137,7 +120,7 @@ def _estimate_concordance_index(event_indicator, event_time, estimate, weights, 
 
         assert event_i, 'got censored sample at index %d, but expected uncensored' % order[ind]
 
-        ties = np.absolute(est - est_i) <= tied_tol
+        ties = numpy.absolute(est - est_i) <= tied_tol
         n_ties = ties.sum()
         # an event should have a higher score
         con = est < est_i
@@ -222,7 +205,7 @@ def concordance_index_censored(event_indicator, event_time, estimate, tied_tol=1
     event_indicator, event_time, estimate = _check_inputs(
         event_indicator, event_time, estimate)
 
-    w = np.ones_like(estimate)
+    w = numpy.ones_like(estimate)
 
     return _estimate_concordance_index(event_indicator, event_time, estimate, w, tied_tol)
 
@@ -303,11 +286,6 @@ def concordance_index_ipcw(survival_train, survival_test, estimate, tau=None, ti
     concordance_index_censored
         Simpler estimator of the concordance index.
 
-    as_concordance_index_ipcw_scorer
-        Wrapper class that uses :func:`concordance_index_ipcw`
-        in its ``score`` method instead of the default
-        :func:`concordance_index_censored`.
-
     References
     ----------
     .. [1] Uno, H., Cai, T., Pencina, M. J., D’Agostino, R. B., & Wei, L. J. (2011).
@@ -321,7 +299,7 @@ def concordance_index_ipcw(survival_train, survival_test, estimate, tau=None, ti
         mask = test_time < tau
         survival_test = survival_test[mask]
 
-    estimate = _check_estimate_1d(estimate, test_time)
+    estimate = _check_estimate(estimate, test_time)
 
     cens = CensoringDistributionEstimator()
     cens.fit(survival_train)
@@ -329,11 +307,11 @@ def concordance_index_ipcw(survival_train, survival_test, estimate, tau=None, ti
     if tau is None:
         ipcw = ipcw_test
     else:
-        ipcw = np.empty(estimate.shape[0], dtype=ipcw_test.dtype)
+        ipcw = numpy.empty(estimate.shape[0], dtype=ipcw_test.dtype)
         ipcw[mask] = ipcw_test
         ipcw[~mask] = 0
 
-    w = np.square(ipcw)
+    w = numpy.square(ipcw)
 
     return _estimate_concordance_index(test_event, test_time, estimate, w, tied_tol)
 
@@ -373,13 +351,7 @@ def cumulative_dynamic_auc(survival_train, survival_test, estimate, times, tied_
     restricted to situations where the random censoring assumption holds and
     censoring is independent of the features.
 
-    This function can also be used to evaluate models with time-dependent predictions
-    :math:`\\hat{f}(\\mathbf{x}_i, t)`, such as :class:`sksurv.ensemble.RandomSurvivalForest`
-    (see :ref:`User Guide </user_guide/evaluating-survival-models.ipynb#Using-Time-dependent-Risk-Scores>`).
-    In this case, `estimate` must be a 2-d array where ``estimate[i, j]`` is the
-    predicted risk score for the i-th instance at time point ``times[j]``.
-
-    Finally, the function also provides a single summary measure that refers to the mean
+    The function also provides a single summary measure that refers to the mean
     of the :math:`\\mathrm{AUC}(t)` over the time range :math:`(\\tau_1, \\tau_2)`.
 
     .. math::
@@ -390,7 +362,7 @@ def cumulative_dynamic_auc(survival_train, survival_test, estimate, times, tied_
 
     where :math:`\\hat{S}(t)` is the Kaplan–Meier estimator of the survival function.
 
-    See the :ref:`User Guide </user_guide/evaluating-survival-models.ipynb#Time-dependent-Area-under-the-ROC>`,
+    See the :ref:`User Guide </user_guide/evaluating-survival-models.ipynb>`,
     [1]_, [2]_, [3]_ for further description.
 
     Parameters
@@ -408,11 +380,8 @@ def cumulative_dynamic_auc(survival_train, survival_test, estimate, times, tied_
         as first field, and time of event or time of censoring as
         second field.
 
-    estimate : array-like, shape = (n_samples,) or (n_samples, n_times)
+    estimate : array-like, shape = (n_samples,)
         Estimated risk of experiencing an event of test data.
-        If `estimate` is a 1-d array, the same risk score across all time
-        points is used. If `estimate` is a 2-d array, the risk scores in the
-        j-th column are used to evaluate the j-th time point.
 
     times : array-like, shape = (n_times,)
         The time points for which the area under the
@@ -433,13 +402,6 @@ def cumulative_dynamic_auc(survival_train, survival_test, estimate, times, tied_
         Summary measure referring to the mean cumulative/dynamic AUC
         over the specified time range `(times[0], times[-1])`.
 
-    See also
-    --------
-    as_cumulative_dynamic_auc_scorer
-        Wrapper class that uses :func:`cumulative_dynamic_auc`
-        in its ``score`` method instead of the default
-        :func:`concordance_index_censored`.
-
     References
     ----------
     .. [1] H. Uno, T. Cai, L. Tian, and L. J. Wei,
@@ -453,68 +415,60 @@ def cumulative_dynamic_auc(survival_train, survival_test, estimate, times, tied_
            Statistical Methods in Medical Research, 2014.
     """
     test_event, test_time = check_y_survival(survival_test)
-    estimate, times = _check_estimate_2d(
-        estimate, test_time, times, estimator="cumulative_dynamic_auc"
-    )
 
-    n_samples = estimate.shape[0]
-    n_times = times.shape[0]
-    if estimate.ndim == 1:
-        estimate = np.broadcast_to(estimate[:, np.newaxis], (n_samples, n_times))
+    estimate = _check_estimate(estimate, test_time)
 
-    # fit and transform IPCW
+    times = _check_times(test_time, times)
+
+    # sort by risk score (descending)
+    o = numpy.argsort(-estimate)
+    test_time = test_time[o]
+    test_event = test_event[o]
+    estimate = estimate[o]
+    survival_test = survival_test[o]
+
     cens = CensoringDistributionEstimator()
     cens.fit(survival_train)
     ipcw = cens.predict_ipcw(survival_test)
 
-    # expand arrays to (n_samples, n_times) shape
-    test_time = np.broadcast_to(test_time[:, np.newaxis], (n_samples, n_times))
-    test_event = np.broadcast_to(test_event[:, np.newaxis], (n_samples, n_times))
-    times_2d = np.broadcast_to(times, (n_samples, n_times))
-    ipcw = np.broadcast_to(ipcw[:, np.newaxis], (n_samples, n_times))
+    n_samples = test_time.shape[0]
+    scores = numpy.empty(times.shape[0], dtype=float)
+    for k, t in enumerate(times):
+        is_case = (test_time <= t) & test_event
+        is_control = test_time > t
+        n_controls = is_control.sum()
 
-    # sort each time point (columns) by risk score (descending)
-    o = np.argsort(-estimate, axis=0)
-    test_time = np.take_along_axis(test_time, o, axis=0)
-    test_event = np.take_along_axis(test_event, o, axis=0)
-    estimate = np.take_along_axis(estimate, o, axis=0)
-    ipcw = np.take_along_axis(ipcw, o, axis=0)
+        true_pos = []
+        false_pos = []
+        tp_value = 0.0
+        fp_value = 0.0
+        est_prev = numpy.infty
 
-    is_case = (test_time <= times_2d) & test_event
-    is_control = test_time > times_2d
-    n_controls = is_control.sum(axis=0)
+        for i in range(n_samples):
+            est = estimate[i]
+            if numpy.absolute(est - est_prev) > tied_tol:
+                true_pos.append(tp_value)
+                false_pos.append(fp_value)
+                est_prev = est
+            if is_case[i]:
+                tp_value += ipcw[i]
+            elif is_control[i]:
+                fp_value += 1
+        true_pos.append(tp_value)
+        false_pos.append(fp_value)
 
-    # prepend row of infinity values
-    estimate_diff = np.concatenate((np.broadcast_to(np.infty, (1, n_times)), estimate))
-    is_tied = np.absolute(np.diff(estimate_diff, axis=0)) <= tied_tol
+        sens = numpy.array(true_pos) / ipcw[is_case].sum()
+        fpr = numpy.array(false_pos) / n_controls
+        scores[k] = trapz(sens, fpr)
 
-    cumsum_tp = np.cumsum(is_case * ipcw, axis=0)
-    cumsum_fp = np.cumsum(is_control, axis=0)
-    true_pos = cumsum_tp / cumsum_tp[-1]
-    false_pos = cumsum_fp / n_controls
-
-    scores = np.empty(n_times, dtype=float)
-    it = np.nditer((true_pos, false_pos, is_tied), order="F", flags=["external_loop"])
-    with it:
-        for i, (tp, fp, mask) in enumerate(it):
-            idx = np.flatnonzero(mask) - 1
-            # only keep the last estimate for tied risk scores
-            tp_no_ties = np.delete(tp, idx)
-            fp_no_ties = np.delete(fp, idx)
-            # Add an extra threshold position
-            # to make sure that the curve starts at (0, 0)
-            tp_no_ties = np.r_[0, tp_no_ties]
-            fp_no_ties = np.r_[0, fp_no_ties]
-            scores[i] = np.trapz(tp_no_ties, fp_no_ties)
-
-    if n_times == 1:
+    if times.shape[0] == 1:
         mean_auc = scores[0]
     else:
         surv = SurvivalFunctionEstimator()
         surv.fit(survival_test)
         s_times = surv.predict_proba(times)
         # compute integral of AUC over survival function
-        d = -np.diff(np.r_[1.0, s_times])
+        d = -numpy.diff(numpy.concatenate(([1.0], s_times)))
         integral = (scores * d).sum()
         mean_auc = integral / (1.0 - s_times[-1])
 
@@ -537,8 +491,7 @@ def brier_score(survival_train, survival_test, estimate, times):
     and :math:`1/\\hat{G}(t)` is a inverse probability of censoring weight, estimated by
     the Kaplan-Meier estimator.
 
-    See the :ref:`User Guide </user_guide/evaluating-survival-models.ipynb#Time-dependent-Brier-Score>`
-    and [1]_ for details.
+    See the :ref:`User Guide </user_guide/evaluating-survival-models.ipynb>` and [1]_ for details.
 
     Parameters
     ----------
@@ -605,7 +558,6 @@ def brier_score(survival_train, survival_test, estimate, times):
     See also
     --------
     integrated_brier_score
-        Computes the average Brier score over all time points.
 
     References
     ----------
@@ -614,32 +566,39 @@ def brier_score(survival_train, survival_test, estimate, times):
            Statistics in Medicine, vol. 18, no. 17-18, pp. 2529–2545, 1999.
     """
     test_event, test_time = check_y_survival(survival_test)
-    estimate, times = _check_estimate_2d(
-        estimate, test_time, times, estimator="brier_score"
-    )
+    times = _check_times(test_time, times)
+
+    estimate = check_array(estimate, ensure_2d=False)
     if estimate.ndim == 1 and times.shape[0] == 1:
         estimate = estimate.reshape(-1, 1)
+
+    if estimate.shape[0] != test_time.shape[0]:
+        raise ValueError("expected estimate with {} samples, but got {}".format(
+            test_time.shape[0], estimate.shape[0]
+        ))
+
+    if estimate.shape[1] != times.shape[0]:
+        raise ValueError("expected estimate with {} columns, but got {}".format(
+            times.shape[0], estimate.shape[1]))
 
     # fit IPCW estimator
     cens = CensoringDistributionEstimator().fit(survival_train)
     # calculate inverse probability of censoring weight at current time point t.
     prob_cens_t = cens.predict_proba(times)
-    prob_cens_t[prob_cens_t == 0] = np.inf
+    prob_cens_t[prob_cens_t == 0] = numpy.inf
     # calculate inverse probability of censoring weights at observed time point
     prob_cens_y = cens.predict_proba(test_time)
-    prob_cens_y[prob_cens_y == 0] = np.inf
+    prob_cens_y[prob_cens_y == 0] = numpy.inf
 
     # Calculating the brier scores at each time point
-    brier_scores = np.empty(times.shape[0], dtype=float)
+    brier_scores = numpy.empty(times.shape[0], dtype=float)
     for i, t in enumerate(times):
         est = estimate[:, i]
         is_case = (test_time <= t) & test_event
         is_control = test_time > t
 
-        brier_scores[i] = np.mean(
-            np.square(est) * is_case.astype(int) / prob_cens_y
-            + np.square(1.0 - est) * is_control.astype(int) / prob_cens_t[i]
-        )
+        brier_scores[i] = numpy.mean(numpy.square(est) * is_case.astype(int) / prob_cens_y
+                                     + numpy.square(1.0 - est) * is_control.astype(int) / prob_cens_t[i])
 
     return times, brier_scores
 
@@ -658,7 +617,7 @@ def integrated_brier_score(survival_train, survival_test, estimate, times):
     where the weighting function is :math:`w(t) = t / t_\\text{max}`.
     The integral is estimated via the trapezoidal rule.
 
-    See the :ref:`User Guide </user_guide/evaluating-survival-models.ipynb#Time-dependent-Brier-Score>`
+    See the :ref:`User Guide </user_guide/evaluating-survival-models.ipynb>`
     and [1]_ for further details.
 
     Parameters
@@ -693,7 +652,7 @@ def integrated_brier_score(survival_train, survival_test, estimate, times):
 
     Examples
     --------
-    >>> import numpy as np
+    >>> import numpy
     >>> from sksurv.datasets import load_gbsg2
     >>> from sksurv.linear_model import CoxPHSurvivalAnalysis
     >>> from sksurv.metrics import integrated_brier_score
@@ -713,8 +672,8 @@ def integrated_brier_score(survival_train, survival_test, estimate, times):
     of remaining event free from 1 year to 5 years (=1825 days).
 
     >>> survs = est.predict_survival_function(Xt)
-    >>> times = np.arange(365, 1826)
-    >>> preds = np.asarray([[fn(t) for t in times] for fn in survs])
+    >>> times = numpy.arange(365, 1826)
+    >>> preds = numpy.asarray([[fn(t) for t in times] for fn in survs])
 
     Compute the integrated Brier score from 1 to 5 years.
 
@@ -725,12 +684,6 @@ def integrated_brier_score(survival_train, survival_test, estimate, times):
     See also
     --------
     brier_score
-        Computes the Brier score at specified time points.
-
-    as_integrated_brier_score_scorer
-        Wrapper class that uses :func:`integrated_brier_score`
-        in its ``score`` method instead of the default
-        :func:`concordance_index_censored`.
 
     References
     ----------
@@ -745,257 +698,6 @@ def integrated_brier_score(survival_train, survival_test, estimate, times):
         raise ValueError("At least two time points must be given")
 
     # Computing the IBS
-    ibs_value = np.trapz(brier_scores, times) / (times[-1] - times[0])
+    ibs_value = trapz(brier_scores, times) / (times[-1] - times[0])
 
     return ibs_value
-
-
-def _estimator_has(attr):
-    """Check that meta_estimator has `attr`.
-
-    Used together with `available_if`."""
-
-    def check(self):
-        # raise original `AttributeError` if `attr` does not exist
-        getattr(self.estimator_, attr)
-        return True
-
-    return check
-
-
-class _ScoreOverrideMixin:
-    def __init__(self, estimator, predict_func, score_func, score_index, greater_is_better):
-        if not hasattr(estimator, predict_func):
-            raise AttributeError("{!r} object has no attribute {!r}".format(estimator, predict_func))
-
-        self.estimator = estimator
-        self._predict_func = predict_func
-        self._score_func = score_func
-        self._score_index = score_index
-        self._sign = 1 if greater_is_better else -1
-
-    def _get_score_params(self):
-        """Return dict of parameters passed to ``score_func``."""
-        params = self.get_params(deep=False)
-        del params["estimator"]
-        return params
-
-    def fit(self, X, y, **fit_params):
-        self._train_y = np.array(y, copy=True)
-        self.estimator_ = self.estimator.fit(X, y, **fit_params)
-        return self
-
-    def _do_predict(self, X):
-        predict_func = getattr(self.estimator_, self._predict_func)
-        return predict_func(X)
-
-    def score(self, X, y):
-        """Returns the score on the given data.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Input data, where n_samples is the number of samples and
-            n_features is the number of features.
-
-        y : array-like of shape (n_samples,)
-            Target relative to X for classification or regression;
-            None for unsupervised learning.
-
-        Returns
-        -------
-        score : float
-        """
-        estimate = self._do_predict(X)
-        score = self._score_func(
-            survival_train=self._train_y,
-            survival_test=y,
-            estimate=estimate,
-            **self._get_score_params(),
-        )
-        if self._score_index is not None:
-            score = score[self._score_index]
-        return self._sign * score
-
-    @available_if(_estimator_has('predict'))
-    def predict(self, X):
-        """Call predict on the estimator.
-
-        Only available if estimator supports ``predict``.
-
-        Parameters
-        ----------
-        X : indexable, length n_samples
-            Must fulfill the input assumptions of the
-            underlying estimator.
-        """
-        check_is_fitted(self, "estimator_")
-        return self.estimator_.predict(X)
-
-    @available_if(_estimator_has('predict_cumulative_hazard_function'))
-    def predict_cumulative_hazard_function(self, X):
-        """Call predict_cumulative_hazard_function on the estimator.
-
-        Only available if estimator supports ``predict_cumulative_hazard_function``.
-
-        Parameters
-        ----------
-        X : indexable, length n_samples
-            Must fulfill the input assumptions of the
-            underlying estimator.
-        """
-        check_is_fitted(self, "estimator_")
-        return self.estimator_.predict_cumulative_hazard_function(X)
-
-    @available_if(_estimator_has('predict_survival_function'))
-    def predict_survival_function(self, X):
-        """Call predict_survival_function on the estimator.
-
-        Only available if estimator supports ``predict_survival_function``.
-
-        Parameters
-        ----------
-        X : indexable, length n_samples
-            Must fulfill the input assumptions of the
-            underlying estimator.
-        """
-        check_is_fitted(self, "estimator_")
-        return self.estimator_.predict_survival_function(X)
-
-
-class as_cumulative_dynamic_auc_scorer(_ScoreOverrideMixin, BaseEstimator):
-    """Wraps an estimator to use :func:`cumulative_dynamic_auc` as ``score`` function.
-
-    See the :ref:`User Guide </user_guide/evaluating-survival-models.ipynb#Using-Metrics-in-Hyper-parameter-Search>`
-    for using it for hyper-parameter optimization.
-
-    Parameters
-    ----------
-    estimator : object
-        Instance of an estimator.
-
-    times : array-like, shape = (n_times,)
-        The time points for which the area under the
-        time-dependent ROC curve is computed. Values must be
-        within the range of follow-up times of the test data
-        `survival_test`.
-
-    tied_tol : float, optional, default: 1e-8
-        The tolerance value for considering ties.
-        If the absolute difference between risk scores is smaller
-        or equal than `tied_tol`, risk scores are considered tied.
-
-    Attributes
-    ----------
-    estimator_ : estimator
-        Estimator that was fit.
-
-    See also
-    --------
-    cumulative_dynamic_auc
-    """
-
-    def __init__(self, estimator, times, tied_tol=1e-8):
-        super().__init__(
-            estimator=estimator,
-            predict_func="predict",
-            score_func=cumulative_dynamic_auc,
-            score_index=1,
-            greater_is_better=True,
-        )
-        self.times = times
-        self.tied_tol = tied_tol
-
-
-class as_concordance_index_ipcw_scorer(_ScoreOverrideMixin, BaseEstimator):
-    """Wraps an estimator to use :func:`concordance_index_ipcw` as ``score`` function.
-
-    See the :ref:`User Guide </user_guide/evaluating-survival-models.ipynb#Using-Metrics-in-Hyper-parameter-Search>`
-    for using it for hyper-parameter optimization.
-
-    Parameters
-    ----------
-    estimator : object
-        Instance of an estimator.
-
-    tau : float, optional
-        Truncation time. The survival function for the underlying
-        censoring time distribution :math:`D` needs to be positive
-        at `tau`, i.e., `tau` should be chosen such that the
-        probability of being censored after time `tau` is non-zero:
-        :math:`P(D > \\tau) > 0`. If `None`, no truncation is performed.
-
-    tied_tol : float, optional, default: 1e-8
-        The tolerance value for considering ties.
-        If the absolute difference between risk scores is smaller
-        or equal than `tied_tol`, risk scores are considered tied.
-
-    Attributes
-    ----------
-    estimator_ : estimator
-        Estimator that was fit.
-
-    See also
-    --------
-    concordance_index_ipcw
-    """
-
-    def __init__(self, estimator, tau=None, tied_tol=1e-8):
-        super().__init__(
-            estimator=estimator,
-            predict_func="predict",
-            score_func=concordance_index_ipcw,
-            score_index=0,
-            greater_is_better=True,
-        )
-        self.tau = tau
-        self.tied_tol = tied_tol
-
-
-class as_integrated_brier_score_scorer(_ScoreOverrideMixin, BaseEstimator):
-    """Wraps an estimator to use the negative of :func:`integrated_brier_score` as ``score`` function.
-
-    The estimator needs to be able to estimate survival functions via
-    a ``predict_survival_function`` method.
-
-    See the :ref:`User Guide </user_guide/evaluating-survival-models.ipynb#Using-Metrics-in-Hyper-parameter-Search>`
-    for using it for hyper-parameter optimization.
-
-    Parameters
-    ----------
-    estimator : object
-        Instance of an estimator that provides ``predict_survival_function``.
-
-    times : array-like, shape = (n_times,)
-        The time points for which to estimate the Brier score.
-        Values must be within the range of follow-up times of
-        the test data `survival_test`.
-
-    Attributes
-    ----------
-    estimator_ : estimator
-        Estimator that was fit.
-
-    See also
-    --------
-    integrated_brier_score
-    """
-
-    def __init__(self, estimator, times):
-        super().__init__(
-            estimator=estimator,
-            predict_func="predict_survival_function",
-            score_func=integrated_brier_score,
-            score_index=None,
-            greater_is_better=False,
-        )
-        self.times = times
-
-    def _do_predict(self, X):
-        predict_func = getattr(self.estimator_, self._predict_func)
-        surv_fns = predict_func(X)
-        times = self.times
-        estimates = np.empty((len(surv_fns), len(times)))
-        for i, fn in enumerate(surv_fns):
-            estimates[i, :] = fn(times)
-        return estimates

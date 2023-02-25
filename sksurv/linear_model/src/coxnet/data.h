@@ -15,7 +15,6 @@
 #ifndef GLMNET_DATA_H
 #define GLMNET_DATA_H
 
-#include <Eigen/Core>
 #include <ostream>
 
 namespace coxnet {

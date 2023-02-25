@@ -10,12 +10,12 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-import numpy as np
+import numpy
 from sklearn.linear_model import Ridge
 
 from ..base import SurvivalAnalysisMixin
 from ..nonparametric import ipc_weights
-from ..util import check_array_survival
+from ..util import check_arrays_survival
 
 
 class IPCRidge(Ridge, SurvivalAnalysisMixin):
@@ -45,28 +45,17 @@ class IPCRidge(Ridge, SurvivalAnalysisMixin):
     coef_ : ndarray, shape = (n_features,)
         Weight vector.
 
-    n_features_in_ : int
-        Number of features seen during ``fit``.
-
-    feature_names_in_ : ndarray of shape (`n_features_in_`,)
-        Names of features seen during ``fit``. Defined only when `X`
-        has feature names that are all strings.
-
     References
     ----------
     .. [1] W. Stute, "Consistent estimation under random censorship when covariables are
            present", Journal of Multivariate Analysis, vol. 45, no. 1, pp. 89-103, 1993.
            doi:10.1006/jmva.1993.1028.
     """
-    def __init__(self, alpha=1.0, fit_intercept=True, normalize="deprecated",
+    def __init__(self, alpha=1.0, fit_intercept=True, normalize=False,
                  copy_X=True, max_iter=None, tol=1e-3, solver="auto"):
-        super().__init__(alpha=alpha, fit_intercept=fit_intercept,
-                         normalize=normalize, copy_X=copy_X,
-                         max_iter=max_iter, tol=tol, solver=solver)
-
-    @property
-    def _predict_risk_score(self):
-        return False
+        super(IPCRidge, self).__init__(alpha=alpha, fit_intercept=fit_intercept,
+                                       normalize=normalize, copy_X=copy_X,
+                                       max_iter=max_iter, tol=tol, solver=solver)
 
     def fit(self, X, y):
         """Build an accelerated failure time model.
@@ -85,10 +74,10 @@ class IPCRidge(Ridge, SurvivalAnalysisMixin):
         -------
         self
         """
-        event, time = check_array_survival(X, y)
+        X, event, time = check_arrays_survival(X, y)
 
         weights = ipc_weights(event, time)
-        super().fit(X, np.log(time), sample_weight=weights)
+        super().fit(X, numpy.log(time), sample_weight=weights)
 
         return self
 
@@ -105,7 +94,7 @@ class IPCRidge(Ridge, SurvivalAnalysisMixin):
         C : array, shape = (n_samples,)
             Returns predicted values on original scale (NOT log scale).
         """
-        return np.exp(super().predict(X))
+        return numpy.exp(super().predict(X))
 
     def score(self, X, y, sample_weight=None):
         return SurvivalAnalysisMixin.score(self, X, y)
