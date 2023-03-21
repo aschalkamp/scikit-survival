@@ -474,6 +474,161 @@ def cumulative_dynamic_auc(survival_train, survival_test, estimate, times, tied_
 
     return scores, mean_auc
 
+def cumulative_dynamic_auprc(survival_train, survival_test, estimate, times, tied_tol=1e-8):
+    """Estimator of cumulative/dynamic AUPRC for right-censored time-to-event data.
+
+    The precision recall curve (PRC) and the area under the
+    PRC curve (AUC) can be extended to survival data by defining
+    precision (positive predictive value) and recall (true positive rate)
+    as time-dependent measures. *Cumulative cases* are all individuals that
+    experienced an event prior to or at time :math:`t` (:math:`t_i \\leq t`),
+    whereas *dynamic controls* are those with :math:`t_i > t`.
+    The associated cumulative/dynamic AUPRC quantifies how well a model can
+    distinguish subjects who fail by a given time (:math:`t_i \\leq t`) from
+    subjects who fail after this time (:math:`t_i > t`).
+
+    To estimate IPCW, access to survival times from the training data is required
+    to estimate the censoring distribution. Note that this requires that survival
+    times `survival_test` lie within the range of survival times `survival_train`.
+    This can be achieved by specifying `times` accordingly, e.g. by setting
+    `times[-1]` slightly below the maximum expected follow-up time.
+    IPCW are computed using the Kaplan-Meier estimator, which is
+    restricted to situations where the random censoring assumption holds and
+    censoring is independent of the features.
+
+    This function can also be used to evaluate models with time-dependent predictions
+    :math:`\\hat{f}(\\mathbf{x}_i, t)`, such as :class:`sksurv.ensemble.RandomSurvivalForest`
+    (see :ref:`User Guide </user_guide/evaluating-survival-models.ipynb#Using-Time-dependent-Risk-Scores>`).
+    In this case, `estimate` must be a 2-d array where ``estimate[i, j]`` is the
+    predicted risk score for the i-th instance at time point ``times[j]``.
+
+    Finally, the function also provides a single summary measure that refers to the mean
+    of the :math:`\\mathrm{AUPRC}(t)` over the time range :math:`(\\tau_1, \\tau_2)`.
+
+
+    Parameters
+    ----------
+    survival_train : structured array, shape = (n_train_samples,)
+        Survival times for training data to estimate the censoring
+        distribution from.
+        A structured array containing the binary event indicator
+        as first field, and time of event or time of censoring as
+        second field.
+
+    survival_test : structured array, shape = (n_samples,)
+        Survival times of test data.
+        A structured array containing the binary event indicator
+        as first field, and time of event or time of censoring as
+        second field.
+
+    estimate : array-like, shape = (n_samples,) or (n_samples, n_times)
+        Estimated risk of experiencing an event of test data.
+        If `estimate` is a 1-d array, the same risk score across all time
+        points is used. If `estimate` is a 2-d array, the risk scores in the
+        j-th column are used to evaluate the j-th time point.
+
+    times : array-like, shape = (n_times,)
+        The time points for which the area under the
+        time-dependent ROC curve is computed. Values must be
+        within the range of follow-up times of the test data
+        `survival_test`.
+
+    tied_tol : float, optional, default: 1e-8
+        The tolerance value for considering ties.
+        If the absolute difference between risk scores is smaller
+        or equal than `tied_tol`, risk scores are considered tied.
+
+    Returns
+    -------
+    auc : array, shape = (n_times,)
+        The cumulative/dynamic AUPRC estimates (evaluated at `times`).
+    mean_auc : float
+        Summary measure referring to the mean cumulative/dynamic AUPRC
+        over the specified time range `(times[0], times[-1])`.
+
+    See also
+    --------
+    as_cumulative_dynamic_auprc_scorer
+        Wrapper class that uses :func:`cumulative_dynamic_auprc`
+        in its ``score`` method instead of the default
+        :func:`concordance_index_censored`.
+    """
+    test_event, test_time = check_y_survival(survival_test)
+    estimate, times = _check_estimate_2d(
+        estimate, test_time, times, estimator="cumulative_dynamic_auprc"
+    )
+
+    n_samples = estimate.shape[0]
+    n_times = times.shape[0]
+    if estimate.ndim == 1:
+        estimate = np.broadcast_to(estimate[:, np.newaxis], (n_samples, n_times))
+
+    # fit and transform IPCW
+    cens = CensoringDistributionEstimator()
+    cens.fit(survival_train)
+    ipcw = cens.predict_ipcw(survival_test)
+
+    # expand arrays to (n_samples, n_times) shape
+    test_time = np.broadcast_to(test_time[:, np.newaxis], (n_samples, n_times))
+    test_event = np.broadcast_to(test_event[:, np.newaxis], (n_samples, n_times))
+    times_2d = np.broadcast_to(times, (n_samples, n_times))
+    ipcw = np.broadcast_to(ipcw[:, np.newaxis], (n_samples, n_times))
+
+    # sort each time point (columns) by risk score (descending)
+    o = np.argsort(-estimate, axis=0)
+    test_time = np.take_along_axis(test_time, o, axis=0)
+    test_event = np.take_along_axis(test_event, o, axis=0)
+    estimate = np.take_along_axis(estimate, o, axis=0)
+    ipcw = np.take_along_axis(ipcw, o, axis=0)
+
+    is_case = (test_time <= times_2d) & test_event
+    is_control = test_time > times_2d
+    n_controls = is_control.sum(axis=0)
+    n_cases = is_case.sum(axis=0)
+
+    # prepend row of infinity values
+    estimate_diff = np.concatenate((np.broadcast_to(np.infty, (1, n_times)), estimate))
+    is_tied = np.absolute(np.diff(estimate_diff, axis=0)) <= tied_tol
+
+    cumsum_tp = np.cumsum(is_case * ipcw, axis=0)
+    cumsum_fp = np.cumsum(is_control, axis=0)
+    true_pos = cumsum_tp / cumsum_tp[-1]
+    false_pos = cumsum_fp / n_controls
+    true_neg = n_controls - cumsum_fp
+
+    precision = cumsum_tp / (cumsum_tp + cumsum_fp)
+    recall = cumsum_tp / n_cases
+
+    #precision = true_pos/(true_pos+false_pos)
+    #recall = 1 - false_pos
+    
+    scores = np.empty(n_times, dtype=float)
+    it = np.nditer((recall, precision, is_tied), order="F", flags=["external_loop"])
+    with it:
+        for i, (r, p, mask) in enumerate(it):
+            idx = np.flatnonzero(mask) - 1
+            # only keep the last estimate for tied risk scores
+            r_no_ties = np.delete(r, idx)
+            p_no_ties = np.delete(p, idx)
+            # Add an extra threshold position
+            # to make sure that the curve starts at (0, 1)
+            r_no_ties = np.r_[0, r_no_ties]
+            p_no_ties = np.r_[1, p_no_ties]
+            scores[i] = np.trapz(p_no_ties, r_no_ties)
+
+    if n_times == 1:
+        mean_auc = scores[0]
+    else:
+        surv = SurvivalFunctionEstimator()
+        surv.fit(survival_test)
+        s_times = surv.predict_proba(times)
+        # compute integral of AUC over survival function
+        d = -np.diff(np.r_[1.0, s_times])
+        integral = (scores * d).sum()
+        mean_auc = integral / (1.0 - s_times[-1])
+
+    return scores, mean_auc
+
 
 def brier_score(survival_train, survival_test, estimate, times):
     """Estimate the time-dependent Brier score for right censored data.
