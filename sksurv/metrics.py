@@ -554,81 +554,69 @@ def cumulative_dynamic_auprc(survival_train, survival_test, estimate, times, tie
         :func:`concordance_index_censored`.
     """
     test_event, test_time = check_y_survival(survival_test)
-    estimate, times = _check_estimate_2d(
-        estimate, test_time, times, estimator="cumulative_dynamic_auprc"
-    )
 
-    n_samples = estimate.shape[0]
-    n_times = times.shape[0]
-    if estimate.ndim == 1:
-        estimate = np.broadcast_to(estimate[:, np.newaxis], (n_samples, n_times))
+    estimate = _check_estimate(estimate, test_time)
 
-    # fit and transform IPCW
+    times = _check_times(test_time, times)
+    
+    # sort by risk score (descending)
+    o = numpy.argsort(-estimate)
+    test_time = test_time[o]
+    test_event = test_event[o]
+    estimate = estimate[o]
+    survival_test = survival_test[o]
+
     cens = CensoringDistributionEstimator()
     cens.fit(survival_train)
     ipcw = cens.predict_ipcw(survival_test)
 
-    # expand arrays to (n_samples, n_times) shape
-    test_time = np.broadcast_to(test_time[:, np.newaxis], (n_samples, n_times))
-    test_event = np.broadcast_to(test_event[:, np.newaxis], (n_samples, n_times))
-    times_2d = np.broadcast_to(times, (n_samples, n_times))
-    ipcw = np.broadcast_to(ipcw[:, np.newaxis], (n_samples, n_times))
+    n_samples = test_time.shape[0]
+    scores = numpy.empty(times.shape[0], dtype=float)
+    for k, t in enumerate(times):
+        is_case = (test_time <= t) & test_event
+        is_control = test_time > t
+        n_controls = is_control.sum()
+        n_cases = is_case.sum()
 
-    # sort each time point (columns) by risk score (descending)
-    o = np.argsort(-estimate, axis=0)
-    test_time = np.take_along_axis(test_time, o, axis=0)
-    test_event = np.take_along_axis(test_event, o, axis=0)
-    estimate = np.take_along_axis(estimate, o, axis=0)
-    ipcw = np.take_along_axis(ipcw, o, axis=0)
+        true_pos = []
+        false_pos = []
+        tp_value = 0.0
+        fp_value = 0.0
+        est_prev = numpy.infty
 
-    is_case = (test_time <= times_2d) & test_event
-    is_control = test_time > times_2d
-    n_controls = is_control.sum(axis=0)
-    n_cases = is_case.sum(axis=0)
+        for i in range(n_samples):
+            est = estimate[i]
+            if numpy.absolute(est - est_prev) > tied_tol:
+                true_pos.append(tp_value)
+                false_pos.append(fp_value)
+                est_prev = est
+            if is_case[i]:
+                tp_value += ipcw[i]
+            elif is_control[i]:
+                fp_value += 1
+        true_pos.append(tp_value)
+        false_pos.append(fp_value)
 
-    # prepend row of infinity values
-    estimate_diff = np.concatenate((np.broadcast_to(np.infty, (1, n_times)), estimate))
-    is_tied = np.absolute(np.diff(estimate_diff, axis=0)) <= tied_tol
+        recall = numpy.array(true_pos) / ipcw[is_case].sum()
+        recall = numpy.hstack([0,recall])
+        pp = numpy.array(true_pos) + numpy.array(false_pos)
+        precision = numpy.zeros_like(true_pos)
+        numpy.divide(true_pos, pp, out=precision, where=(pp != 0))
+        precision = numpy.hstack([precision,1])
+        scores[k] = -1*trapz(precision,recall[::-1])
 
-    cumsum_tp = np.cumsum(is_case * ipcw, axis=0)
-    cumsum_fp = np.cumsum(is_control, axis=0)
-    true_pos = cumsum_tp / cumsum_tp[-1]
-    false_pos = cumsum_fp / n_controls
-    true_neg = n_controls - cumsum_fp
-
-    precision = cumsum_tp / (cumsum_tp + cumsum_fp)
-    recall = cumsum_tp / n_cases
-
-    #precision = true_pos/(true_pos+false_pos)
-    #recall = 1 - false_pos
-    
-    scores = np.empty(n_times, dtype=float)
-    it = np.nditer((recall, precision, is_tied), order="F", flags=["external_loop"])
-    with it:
-        for i, (r, p, mask) in enumerate(it):
-            idx = np.flatnonzero(mask) - 1
-            # only keep the last estimate for tied risk scores
-            r_no_ties = np.delete(r, idx)
-            p_no_ties = np.delete(p, idx)
-            # Add an extra threshold position
-            # to make sure that the curve starts at (0, 1)
-            r_no_ties = np.r_[0, r_no_ties]
-            p_no_ties = np.r_[1, p_no_ties]
-            scores[i] = np.trapz(p_no_ties, r_no_ties)
-
-    if n_times == 1:
+    if times.shape[0] == 1:
         mean_auc = scores[0]
     else:
         surv = SurvivalFunctionEstimator()
         surv.fit(survival_test)
         s_times = surv.predict_proba(times)
         # compute integral of AUC over survival function
-        d = -np.diff(np.r_[1.0, s_times])
+        d = -numpy.diff(numpy.concatenate(([1.0], s_times)))
         integral = (scores * d).sum()
         mean_auc = integral / (1.0 - s_times[-1])
 
     return scores, mean_auc
-
 
 def brier_score(survival_train, survival_test, estimate, times):
     """Estimate the time-dependent Brier score for right censored data.
